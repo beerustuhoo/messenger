@@ -22,7 +22,10 @@ function normalizeToken(raw) {
 }
 
 function signTokens(userId) {
-  const accessToken = jwt.sign({ sub: userId }, process.env.JWT_SECRET, { expiresIn: '1h' });
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET is not configured');
+  }
+  const accessToken = jwt.sign({ sub: String(userId) }, process.env.JWT_SECRET, { expiresIn: '1h' });
   const refreshToken = crypto.randomBytes(48).toString('hex');
   return { accessToken, refreshToken };
 }
@@ -86,7 +89,17 @@ router.post('/register', async (req, res) => {
       message: 'Account created. Please verify your email.',
     });
   } catch (err) {
-    console.error(err);
+    console.error('Register error:', err);
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Email or username already in use' });
+    }
+    const msg = err.message || '';
+    if (msg.includes('ENCRYPTION_KEY')) {
+      return res.status(503).json({ error: 'Server misconfigured: encryption key' });
+    }
+    if (msg.includes('JWT_SECRET')) {
+      return res.status(503).json({ error: 'Server misconfigured: auth secret' });
+    }
     res.status(500).json({ error: 'Registration failed' });
   }
 });

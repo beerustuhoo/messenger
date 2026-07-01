@@ -5,7 +5,7 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const { Server } = require('socket.io');
-const { initDb } = require('./db');
+const { initDb, pool } = require('./db');
 const { setupSocket } = require('./socket');
 
 const authRoutes = require('./routes/auth');
@@ -19,7 +19,23 @@ const { router: pollRoutes } = require('./routes/polls');
 const PORT = process.env.PORT || 3000;
 const uploadDir = process.env.UPLOAD_DIR || './uploads';
 
+function validateEnv() {
+  const missing = [];
+  if (!process.env.DATABASE_URL) missing.push('DATABASE_URL');
+  if (!process.env.JWT_SECRET) missing.push('JWT_SECRET');
+  const enc = process.env.ENCRYPTION_KEY;
+  if (!enc || enc.length !== 64 || !/^[0-9a-fA-F]+$/.test(enc)) {
+    missing.push('ENCRYPTION_KEY (64 hex characters, run: openssl rand -hex 32)');
+  }
+  if (missing.length) {
+    console.error('FATAL: Missing or invalid environment variables:');
+    missing.forEach((m) => console.error(`  - ${m}`));
+    throw new Error(`Server misconfigured: ${missing.join(', ')}`);
+  }
+}
+
 async function main() {
+  validateEnv();
   await initDb();
 
   const app = express();
@@ -39,6 +55,21 @@ async function main() {
   const publicDir = path.join(__dirname, '../public');
 
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
+  app.get('/health/ready', async (_req, res) => {
+    try {
+      await pool.query('SELECT 1');
+      res.json({
+        status: 'ok',
+        database: true,
+        encryption: Boolean(process.env.ENCRYPTION_KEY?.length === 64),
+        jwt: Boolean(process.env.JWT_SECRET),
+      });
+    } catch (err) {
+      console.error('Readiness check failed:', err);
+      res.status(503).json({ status: 'error', database: false });
+    }
+  });
 
   app.get('/', (req, res, next) => {
     const indexPath = path.join(publicDir, 'index.html');

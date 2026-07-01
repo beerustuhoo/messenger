@@ -1,10 +1,19 @@
 const { Pool } = require('pg');
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const connectionString = process.env.DATABASE_URL;
+const useSsl =
+  process.env.NODE_ENV === 'production' ||
+  (connectionString && /render\.com|sslmode=require/i.test(connectionString));
+
+const pool = new Pool({
+  connectionString,
+  ssl: useSsl ? { rejectUnauthorized: false } : undefined,
+});
 
 async function initDb() {
   const client = await pool.connect();
   try {
+    await client.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
