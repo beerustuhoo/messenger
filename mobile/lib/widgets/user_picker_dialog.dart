@@ -30,13 +30,13 @@ class UserPickerDialog extends StatefulWidget {
     );
   }
 
-  static Future<UserSummary?> pickOne(BuildContext context, {String? title}) async {
+  static Future<UserSummary?> pickOne(BuildContext context, {String? title, String confirmLabel = 'Add'}) async {
     final list = await showDialog<List<UserSummary>>(
       context: context,
       builder: (_) => UserPickerDialog(
-        title: title ?? 'Invite user',
+        title: title ?? 'Add user',
         allowMultiple: false,
-        confirmLabel: 'Invite',
+        confirmLabel: confirmLabel,
       ),
     );
     if (list == null || list.isEmpty) return null;

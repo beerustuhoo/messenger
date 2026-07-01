@@ -160,7 +160,7 @@ class _WebShellState extends State<WebShell> {
                                   highlightQuery: _activeHighlightQuery(state, id),
                                   highlightMessageId: _activeHighlightMessageId(state, id),
                                   onClose: () => context.read<AppState>().closeChat(id),
-                                  onInvite: () => _showInviteToGroup(context, id),
+                                  onInvite: () => _showAddToGroup(context, id),
                                 ),
                               ),
                               if (id != state.openChatIds.last) const VerticalDivider(width: 1),
@@ -209,14 +209,14 @@ class _WebShellState extends State<WebShell> {
     return state.searchResults[_searchResultIndex].id;
   }
 
-  Future<void> _showInviteToGroup(BuildContext context, String chatId) async {
-    final user = await UserPickerDialog.pickOne(context, title: 'Invite to group');
+  Future<void> _showAddToGroup(BuildContext context, String chatId) async {
+    final user = await UserPickerDialog.pickOne(context, title: 'Add to group');
     if (user == null || !context.mounted) return;
     try {
-      await context.read<AppState>().sendGroupInvite(chatId, user.id);
+      await context.read<AppState>().addGroupMember(chatId, user.id);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Invite sent to ${user.username}')),
+          SnackBar(content: Text('${user.username} added to the group')),
         );
       }
     } catch (e) {
@@ -261,8 +261,13 @@ class _WebShellState extends State<WebShell> {
             members.map((m) => m.id).toList(),
           );
       if (context.mounted) {
+        final added = members.length;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Group created')),
+          SnackBar(
+            content: Text(
+              added > 0 ? 'Group created with $added member${added == 1 ? '' : 's'}' : 'Group created',
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -373,7 +378,7 @@ class _OpenChatPane extends StatelessWidget {
               ),
               IconButton(icon: const Icon(Icons.close), onPressed: onClose),
               if (chat.isGroup && onInvite != null)
-                IconButton(icon: const Icon(Icons.person_add), tooltip: 'Invite member', onPressed: onInvite),
+                IconButton(icon: const Icon(Icons.person_add), tooltip: 'Add member', onPressed: onInvite),
             ],
           ),
         ),

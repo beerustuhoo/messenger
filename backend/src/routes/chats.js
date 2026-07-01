@@ -5,6 +5,38 @@ const { authMiddleware } = require('../middleware');
 
 const router = express.Router();
 
+async function canManageGroup(userId, chatId) {
+  const r = await pool.query(
+    `SELECT 1 FROM chat_members cm
+     JOIN chats c ON c.id = cm.chat_id
+     WHERE cm.chat_id = $1 AND cm.user_id = $2 AND c.type = 'group'
+       AND (cm.role = 'admin' OR c.created_by = cm.user_id)`,
+    [chatId, userId]
+  );
+  return r.rows.length > 0;
+}
+
+async function addMembersToGroup(chatId, memberIds, io) {
+  const added = [];
+  for (const memberId of memberIds) {
+    const user = await pool.query('SELECT id FROM users WHERE id = $1', [memberId]);
+    if (!user.rows.length) continue;
+    const inserted = await pool.query(
+      `INSERT INTO chat_members (chat_id, user_id, role) VALUES ($1, $2, 'member')
+       ON CONFLICT DO NOTHING RETURNING user_id`,
+      [chatId, memberId]
+    );
+    if (inserted.rows.length) {
+      added.push(memberId);
+      if (io) {
+        io.to(`user:${memberId}`).emit('chat:created', { chatId });
+        io.to(`chat:${chatId}`).emit('group:member-joined', { chatId, userId: memberId });
+      }
+    }
+  }
+  return added;
+}
+
 function mapChatRow(row, userId) {
   const members = row.members || [];
   const otherUser = row.other_user;
@@ -77,30 +109,53 @@ router.post('/groups', authMiddleware, async (req, res) => {
 
   const uniqueMembers = [...new Set(memberIds.filter((id) => id && id !== req.userId))];
 
-  const chatResult = await pool.query(
-    `INSERT INTO chats (type, name, created_by) VALUES ('group', $1, $2) RETURNING id`,
-    [name.trim(), req.userId]
-  );
-  const chatId = chatResult.rows[0].id;
-  const io = req.app.get('io');
-
-  await pool.query(
-    `INSERT INTO chat_members (chat_id, user_id, role) VALUES ($1, $2, 'admin')`,
-    [chatId, req.userId]
-  );
-
-  for (const memberId of uniqueMembers) {
-    await pool.query(
-      `INSERT INTO chat_members (chat_id, user_id, role) VALUES ($1, $2, 'member')
-       ON CONFLICT DO NOTHING`,
-      [chatId, memberId]
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const chatResult = await client.query(
+      `INSERT INTO chats (type, name, created_by) VALUES ('group', $1, $2) RETURNING id`,
+      [name.trim(), req.userId]
     );
-    io.to(`user:${memberId}`).emit('chat:created', { chatId });
+    const chatId = chatResult.rows[0].id;
+    const io = req.app.get('io');
+
+    await client.query(
+      `INSERT INTO chat_members (chat_id, user_id, role) VALUES ($1, $2, 'admin')`,
+      [chatId, req.userId]
+    );
+
+    await client.query('COMMIT');
+
+    const added = await addMembersToGroup(chatId, uniqueMembers, io);
+    io.to(`user:${req.userId}`).emit('chat:created', { chatId });
+
+    res.status(201).json({ ok: true, chatId, addedMembers: added });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Create group failed:', err);
+    res.status(500).json({ error: 'Failed to create group' });
+  } finally {
+    client.release();
+  }
+});
+
+router.post('/:id/members', authMiddleware, async (req, res) => {
+  const chatId = req.params.id;
+  const { userId, userIds } = req.body;
+  const ids = [...new Set((userIds ?? (userId ? [userId] : [])).filter((id) => id && id !== req.userId))];
+  if (!ids.length) return res.status(400).json({ error: 'userId or userIds required' });
+
+  if (!(await canManageGroup(req.userId, chatId))) {
+    return res.status(403).json({ error: 'Only group admins can add members' });
   }
 
-  io.to(`user:${req.userId}`).emit('chat:created', { chatId });
+  const io = req.app.get('io');
+  const added = await addMembersToGroup(chatId, ids, io);
+  if (!added.length) {
+    return res.status(400).json({ error: 'User is already in this group or not found' });
+  }
 
-  res.status(201).json({ ok: true, chatId });
+  res.status(201).json({ ok: true, chatId, addedMembers: added });
 });
 
 router.get('/:id/members', authMiddleware, async (req, res) => {

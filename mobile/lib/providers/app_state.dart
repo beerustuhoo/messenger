@@ -701,6 +701,12 @@ class AppState extends ChangeNotifier {
       openChat('${data['chatId']}');
     }
     notifyListeners();
+    if (data is Map<String, dynamic>) {
+      final added = (data['addedMembers'] as List?)?.length ?? 0;
+      if (added > 0) {
+        setError('Group created — $added member${added == 1 ? '' : 's'} added');
+      }
+    }
   }
 
   Future<void> loadGroupInvites() async {
@@ -714,9 +720,14 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<void> addGroupMember(String chatId, String userId) async {
+    await api.post('/chats/$chatId/members', {'userId': userId});
+    await loadChats();
+    notifyListeners();
+  }
+
   Future<void> sendGroupInvite(String chatId, String toUserId) async {
     await api.post('/group-invites/send', {'chatId': chatId, 'toUserId': toUserId});
-    await loadGroupInvites();
   }
 
   Future<void> respondGroupInvite(String id, bool accept) async {

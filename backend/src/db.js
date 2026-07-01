@@ -95,6 +95,11 @@ async function initDb() {
       ALTER TABLE chats ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id);
       ALTER TABLE chat_members ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'member';
 
+      UPDATE chat_members cm SET role = 'admin'
+      FROM chats c
+      WHERE c.id = cm.chat_id AND c.type = 'group' AND c.created_by = cm.user_id
+        AND COALESCE(cm.role, 'member') <> 'admin';
+
       CREATE TABLE IF NOT EXISTS group_invites (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         chat_id UUID REFERENCES chats(id) ON DELETE CASCADE,

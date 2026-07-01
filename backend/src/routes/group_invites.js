@@ -8,7 +8,8 @@ async function isGroupAdmin(userId, chatId) {
   const r = await pool.query(
     `SELECT 1 FROM chat_members cm
      JOIN chats c ON c.id = cm.chat_id
-     WHERE cm.chat_id = $1 AND cm.user_id = $2 AND c.type = 'group' AND cm.role = 'admin'`,
+     WHERE cm.chat_id = $1 AND cm.user_id = $2 AND c.type = 'group'
+       AND (cm.role = 'admin' OR c.created_by = cm.user_id)`,
     [chatId, userId]
   );
   return r.rows.length > 0;
@@ -60,18 +61,25 @@ router.post('/send', authMiddleware, async (req, res) => {
   }
 
   const existing = await pool.query(
-    `SELECT id FROM group_invites WHERE chat_id = $1 AND to_user_id = $2 AND status = 'pending'`,
+    `SELECT id, status FROM group_invites WHERE chat_id = $1 AND to_user_id = $2`,
     [chatId, toUserId]
   );
-  if (existing.rows.length) {
+  if (existing.rows.length && existing.rows[0].status === 'pending') {
     return res.status(400).json({ error: 'Invitation already pending' });
   }
 
-  await pool.query(
-    `INSERT INTO group_invites (chat_id, from_user_id, to_user_id, status)
-     VALUES ($1, $2, $3, 'pending')`,
-    [chatId, req.userId, toUserId]
-  );
+  try {
+    await pool.query(
+      `INSERT INTO group_invites (chat_id, from_user_id, to_user_id, status)
+       VALUES ($1, $2, $3, 'pending')
+       ON CONFLICT (chat_id, to_user_id)
+       DO UPDATE SET status = 'pending', from_user_id = EXCLUDED.from_user_id, created_at = NOW()`,
+      [chatId, req.userId, toUserId]
+    );
+  } catch (err) {
+    console.error('Group invite insert failed:', err);
+    return res.status(500).json({ error: 'Failed to send invitation' });
+  }
 
   const io = req.app.get('io');
   io.to(`user:${toUserId}`).emit('group-invite:received', { chatId });
