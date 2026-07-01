@@ -298,8 +298,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> _fetchVerificationToken() async {
     try {
-      final data = await api.get('/auth/verification-token') as Map<String, dynamic>;
-      if (data['verificationToken'] != null) {
+      final data = await api.get('/auth/verification-token');
+      if (data is Map<String, dynamic> && data['verificationToken'] != null) {
         await _setPendingVerificationToken(data['verificationToken'] as String);
       }
     } catch (_) {}
@@ -338,7 +338,7 @@ class AppState extends ChangeNotifier {
         'password': password,
         'username': username,
       });
-      await _handleAuthResponse(data as Map<String, dynamic>);
+      await _handleAuthResponse(_expectMap(data, 'register'));
       return true;
     } on ApiException catch (e) {
       fieldError = e.field;
@@ -354,7 +354,7 @@ class AppState extends ChangeNotifier {
     try {
       clearError();
       final data = await api.post('/auth/login', {'email': email, 'password': password});
-      await _handleAuthResponse(data as Map<String, dynamic>);
+      await _handleAuthResponse(_expectMap(data, 'login'));
       return true;
     } on ApiException catch (e) {
       setError(e.message);
@@ -365,12 +365,26 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Map<String, dynamic> _expectMap(dynamic data, String action) {
+    if (data is Map<String, dynamic>) return data;
+    throw ApiException(
+      'Invalid server response during $action. On Render, use https://YOUR-SERVICE.onrender.com (not http://).',
+    );
+  }
+
   Future<void> _handleAuthResponse(Map<String, dynamic> data) async {
-    final access = data['accessToken'] as String;
-    final refresh = data['refreshToken'] as String;
+    final access = data['accessToken'] as String?;
+    final refresh = data['refreshToken'] as String?;
+    if (access == null || refresh == null) {
+      throw ApiException('Server did not return session tokens');
+    }
     api.setTokens(access: access, refresh: refresh);
     await storage.saveTokens(access, refresh);
-    user = UserModel.fromJson(data['user'] as Map<String, dynamic>);
+    final userJson = data['user'];
+    if (userJson is! Map<String, dynamic>) {
+      throw ApiException('Server did not return user profile');
+    }
+    user = UserModel.fromJson(userJson);
     await storage.saveCachedUser(user!);
     if (data['verificationToken'] != null) {
       await _setPendingVerificationToken(data['verificationToken'] as String);

@@ -58,6 +58,10 @@ class AppConfig {
     if (!u.startsWith('http://') && !u.startsWith('https://')) {
       u = 'http://$u';
     }
+    // Render requires HTTPS — http:// causes redirect and breaks POST bodies (register/login fail).
+    if (u.contains('.onrender.com') && u.startsWith('http://')) {
+      u = u.replaceFirst('http://', 'https://');
+    }
     while (u.endsWith('/')) {
       u = u.substring(0, u.length - 1);
     }

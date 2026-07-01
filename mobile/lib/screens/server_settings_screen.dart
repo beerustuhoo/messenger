@@ -110,6 +110,16 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
                 const Divider(height: 24),
                 _hintRow(Icons.phone_android, 'Physical phone on same Wi‑Fi',
                     'http://YOUR_PC_IP:3000'),
+                const Divider(height: 24),
+                _hintRow(Icons.cloud, 'Render (cloud server)',
+                    'https://YOUR-SERVICE.onrender.com'),
+                const SizedBox(height: 8),
+                Text(
+                  'Render must use https:// — http:// breaks register and login.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                ),
                 const SizedBox(height: 8),
                 Text(
                   'After .\\start-backend.ps1, your PC IP is printed in the terminal.',

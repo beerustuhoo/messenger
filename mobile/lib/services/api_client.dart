@@ -102,6 +102,12 @@ class ApiClient {
         details: (err?['details'] as List?)?.cast<String>(),
       );
     }
+    if (data == null && response.statusCode >= 200 && response.statusCode < 300) {
+      throw ApiException(
+        'Empty server response (${response.statusCode}). Use https:// for Render URLs, not http://.',
+        statusCode: response.statusCode,
+      );
+    }
     return data;
   }
 
