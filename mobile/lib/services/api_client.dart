@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import '../config.dart';
 
 class ApiException implements Exception {
@@ -129,6 +130,7 @@ class ApiClient {
       field,
       bytes,
       filename: filename,
+      contentType: mimeType != null ? MediaType.parse(mimeType) : null,
     ));
     final streamed = await request.send();
     return http.Response.fromStream(streamed);

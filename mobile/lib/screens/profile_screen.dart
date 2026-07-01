@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../config.dart';
 import '../providers/app_state.dart';
 import '../providers/theme_provider.dart';
+import '../utils/image_upload.dart';
 import '../widgets/avatar.dart';
 import 'server_settings_screen.dart';
 
@@ -42,7 +43,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
     if (file == null) return;
     final bytes = await file.readAsBytes();
-    if (bytes.length > 5 * 1024 * 1024) {
+    final prepared = preparePickedImage(file, bytes);
+    if (prepared.bytes.length > 5 * 1024 * 1024) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Image must be under 5MB')),
@@ -50,8 +52,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
       return;
     }
-    final ext = file.name.toLowerCase();
-    if (!ext.endsWith('.jpg') && !ext.endsWith('.jpeg') && !ext.endsWith('.png')) {
+    if (!isAllowedImageMime(prepared.mimeType)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Only JPEG and PNG are supported')),
@@ -61,7 +62,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
     setState(() => _saving = true);
     try {
-      await context.read<AppState>().uploadAvatar(bytes, file.name);
+      await context.read<AppState>().uploadAvatar(
+            prepared.bytes,
+            prepared.filename,
+            mimeType: prepared.mimeType,
+          );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));

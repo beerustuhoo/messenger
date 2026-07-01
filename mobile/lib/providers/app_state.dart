@@ -829,9 +829,25 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> uploadAvatar(List<int> bytes, String filename) async {
-    final response = await api.uploadMultipart('/users/avatar', 'avatar', bytes, filename);
-    if (response.statusCode >= 400) throw ApiException('Avatar upload failed');
+  Future<void> uploadAvatar(List<int> bytes, String filename, {String? mimeType}) async {
+    final response = await api.uploadMultipart(
+      '/users/avatar',
+      'avatar',
+      bytes,
+      filename,
+      mimeType: mimeType ?? 'image/jpeg',
+    );
+    if (response.statusCode >= 400) {
+      try {
+        final body = jsonDecode(response.body);
+        if (body is Map && body['error'] != null) {
+          throw ApiException(body['error'] as String);
+        }
+      } catch (e) {
+        if (e is ApiException) rethrow;
+      }
+      throw ApiException('Avatar upload failed (${response.statusCode})');
+    }
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     user = UserModel(
       id: user!.id,

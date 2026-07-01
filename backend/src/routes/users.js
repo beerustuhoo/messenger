@@ -15,14 +15,20 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: uploadDir,
-  filename: (_req, file, cb) => cb(null, `avatar_${uuidv4()}${path.extname(file.originalname)}`),
+  filename: (_req, file, cb) => {
+    let ext = path.extname(file.originalname).toLowerCase();
+    if (!ext || ext === '.') {
+      ext = file.mimetype === 'image/png' ? '.png' : '.jpg';
+    }
+    cb(null, `avatar_${uuidv4()}${ext}`);
+  },
 });
 
 const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const allowed = ['image/jpeg', 'image/png', 'image/jpg'];
+    const allowed = ['image/jpeg', 'image/png', 'image/jpg', 'application/octet-stream'];
     if (allowed.includes(file.mimetype)) cb(null, true);
     else cb(new Error('Only JPEG and PNG images are allowed'));
   },
