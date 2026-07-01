@@ -68,12 +68,12 @@ class ChatModel {
             .toList() ??
         [];
     final other = j['otherUser'] != null
-        ? UserSummary.fromJson(j['otherUser'] as Map<String, dynamic>)
+        ? UserSummary.fromJson(Map<String, dynamic>.from(j['otherUser'] as Map))
         : (members.isNotEmpty
             ? members.first
             : UserSummary(id: '', username: j['name'] as String? ?? 'Chat'));
     return ChatModel(
-      id: j['id'] as String,
+      id: '${j['id']}',
       type: j['type'] as String? ?? 'direct',
       name: j['name'] as String?,
       updatedAt: DateTime.parse(j['updatedAt'] as String),
@@ -96,8 +96,8 @@ class UserSummary {
   UserSummary({required this.id, required this.username, this.avatarUrl});
 
   factory UserSummary.fromJson(Map<String, dynamic> j) => UserSummary(
-        id: j['id'] as String,
-        username: j['username'] as String,
+        id: '${j['id']}',
+        username: j['username'] as String? ?? '',
         avatarUrl: j['avatarUrl'] as String?,
       );
 }
@@ -247,8 +247,8 @@ class GroupInviteModel {
   });
 
   factory GroupInviteModel.fromJson(Map<String, dynamic> j) => GroupInviteModel(
-        id: j['id'] as String,
-        chatId: j['chatId'] as String,
+        id: '${j['id']}',
+        chatId: '${j['chatId']}',
         chatName: j['chatName'] as String? ?? 'Group',
         fromUser: UserSummary.fromJson(j['fromUser'] as Map<String, dynamic>),
         createdAt: DateTime.parse(j['createdAt'] as String),

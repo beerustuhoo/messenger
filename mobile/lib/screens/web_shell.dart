@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../widgets/avatar.dart';
 import '../widgets/error_banner.dart';
+import '../widgets/user_picker_dialog.dart';
 import '../widgets/verification_banner.dart';
 import 'chat_screen.dart';
 import 'profile_screen.dart';
@@ -209,29 +210,14 @@ class _WebShellState extends State<WebShell> {
   }
 
   Future<void> _showInviteToGroup(BuildContext context, String chatId) async {
-    final userIdCtrl = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Invite to group'),
-        content: TextField(
-          controller: userIdCtrl,
-          decoration: const InputDecoration(
-            labelText: 'User ID',
-            helperText: 'Find users via Search (person icon)',
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Send invite')),
-        ],
-      ),
-    );
-    if (ok != true || !context.mounted) return;
+    final user = await UserPickerDialog.pickOne(context, title: 'Invite to group');
+    if (user == null || !context.mounted) return;
     try {
-      await context.read<AppState>().sendGroupInvite(chatId, userIdCtrl.text.trim());
+      await context.read<AppState>().sendGroupInvite(chatId, user.id);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Group invite sent')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Invite sent to ${user.username}')),
+        );
       }
     } catch (e) {
       context.read<AppState>().showBannerError(e.toString());
@@ -240,34 +226,45 @@ class _WebShellState extends State<WebShell> {
 
   Future<void> _showCreateGroup(BuildContext context) async {
     final nameCtrl = TextEditingController();
-    final membersCtrl = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Create group chat'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Group name')),
-            TextField(
-              controller: membersCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Member user IDs (comma-separated)',
-                helperText: 'Find users via Search first',
-              ),
-            ),
-          ],
+        content: TextField(
+          controller: nameCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Group name',
+            border: OutlineInputBorder(),
+          ),
+          autofocus: true,
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Create')),
+          FilledButton(
+            onPressed: () {
+              if (nameCtrl.text.trim().isEmpty) return;
+              Navigator.pop(ctx, true);
+            },
+            child: const Text('Next'),
+          ),
         ],
       ),
     );
     if (ok != true || !context.mounted) return;
+
+    final members = await UserPickerDialog.pickMany(context, title: 'Add members (optional)');
+    if (!context.mounted || members == null) return;
+
     try {
-      final ids = membersCtrl.text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
-      await context.read<AppState>().createGroup(nameCtrl.text.trim(), ids);
+      await context.read<AppState>().createGroup(
+            nameCtrl.text.trim(),
+            members.map((m) => m.id).toList(),
+          );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Group created')),
+        );
+      }
     } catch (e) {
       context.read<AppState>().showBannerError(e.toString());
     }
@@ -304,7 +301,16 @@ class _ChatSidebar extends StatelessWidget {
                     url: chat.isGroup ? null : chat.otherUser.avatarUrl,
                     fallbackLetter: chat.displayTitle,
                   ),
-                  title: Text(chat.displayTitle),
+                  title: Row(
+                    children: [
+                      if (chat.isGroup)
+                        const Padding(
+                          padding: EdgeInsets.only(right: 4),
+                          child: Icon(Icons.groups, size: 16),
+                        ),
+                      Expanded(child: Text(chat.displayTitle)),
+                    ],
+                  ),
                   subtitle: Text(chat.lastMessage?.preview ?? 'No messages yet'),
                   onTap: () => onOpen(chat.id),
                 );
@@ -428,11 +434,23 @@ class _WebInvitesScreen extends StatelessWidget {
                 children: [
                   IconButton(
                     icon: const Icon(Icons.check, color: Colors.green),
-                    onPressed: () => state.respondGroupInvite(inv.id, true),
+                    onPressed: () async {
+                      try {
+                        await state.respondGroupInvite(inv.id, true);
+                      } catch (e) {
+                        state.showBannerError(e.toString());
+                      }
+                    },
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, color: Colors.red),
-                    onPressed: () => state.respondGroupInvite(inv.id, false),
+                    onPressed: () async {
+                      try {
+                        await state.respondGroupInvite(inv.id, false);
+                      } catch (e) {
+                        state.showBannerError(e.toString());
+                      }
+                    },
                   ),
                 ],
               ),

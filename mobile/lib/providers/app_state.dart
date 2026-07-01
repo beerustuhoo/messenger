@@ -695,8 +695,12 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> createGroup(String name, List<String> memberIds) async {
-    await api.post('/chats/groups', {'name': name, 'memberIds': memberIds});
+    final data = await api.post('/chats/groups', {'name': name, 'memberIds': memberIds});
     await loadChats();
+    if (data is Map<String, dynamic> && data['chatId'] != null) {
+      openChat('${data['chatId']}');
+    }
+    notifyListeners();
   }
 
   Future<void> loadGroupInvites() async {
@@ -712,12 +716,17 @@ class AppState extends ChangeNotifier {
 
   Future<void> sendGroupInvite(String chatId, String toUserId) async {
     await api.post('/group-invites/send', {'chatId': chatId, 'toUserId': toUserId});
+    await loadGroupInvites();
   }
 
   Future<void> respondGroupInvite(String id, bool accept) async {
-    await api.post('/group-invites/$id/respond', {'accept': accept});
+    final data = await api.post('/group-invites/$id/respond', {'accept': accept});
     await loadGroupInvites();
     await loadChats();
+    if (accept && data is Map<String, dynamic> && data['chatId'] != null) {
+      openChat('${data['chatId']}');
+    }
+    notifyListeners();
   }
 
   Future<void> searchMessages(String q, {String? chatId}) async {

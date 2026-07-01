@@ -82,6 +82,7 @@ router.post('/groups', authMiddleware, async (req, res) => {
     [name.trim(), req.userId]
   );
   const chatId = chatResult.rows[0].id;
+  const io = req.app.get('io');
 
   await pool.query(
     `INSERT INTO chat_members (chat_id, user_id, role) VALUES ($1, $2, 'admin')`,
@@ -94,9 +95,9 @@ router.post('/groups', authMiddleware, async (req, res) => {
        ON CONFLICT DO NOTHING`,
       [chatId, memberId]
     );
+    io.to(`user:${memberId}`).emit('chat:created', { chatId });
   }
 
-  const io = req.app.get('io');
   io.to(`user:${req.userId}`).emit('chat:created', { chatId });
 
   res.status(201).json({ ok: true, chatId });
