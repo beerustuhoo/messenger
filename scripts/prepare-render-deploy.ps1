@@ -18,6 +18,7 @@ Write-Host "Building Flutter web (API_URL=$AppUrl)..." -ForegroundColor Cyan
 Push-Location "$root\mobile"
 flutter pub get
 flutter build web --dart-define=API_URL=$AppUrl
+if ($LASTEXITCODE -ne 0) { throw "Flutter build failed" }
 Pop-Location
 
 $src = "$root\mobile\build\web"

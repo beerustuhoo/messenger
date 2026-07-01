@@ -26,7 +26,18 @@ Mobile APK uses the **same base URL** (no `/api` suffix) in Server settings.
 
 ---
 
-## Prerequisites
+## Render free tier vs always online
+
+| Plan | Behavior |
+|------|----------|
+| **Free** | Service **sleeps** after ~15 minutes with no traffic. First visit after sleep can take **30–60 seconds** (cold start). Fine for demos and review. |
+| **Starter (paid)** | Service stays **always on** — best if you need instant access from any computer at any time. |
+
+To avoid cold starts on free tier, use a free uptime monitor (e.g. [UptimeRobot](https://uptimerobot.com)) to ping `/health` every 5 minutes — acceptable for school projects; Render may still spin down occasionally.
+
+Docs: [Render pricing](https://render.com/pricing) · [Render deploy guide](RENDER.md)
+
+---
 
 1. [Render](https://render.com) account (free tier works for review)
 2. Git remote Render can access — **GitHub** or **GitLab** (recommended).  

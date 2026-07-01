@@ -2,6 +2,23 @@
 
 A full-stack Flutter messaging application with a Node.js backend, real-time chat, encrypted data storage, and reviewer-friendly setup.
 
+## Two-part project (mobile + web)
+
+This repo contains **one shared codebase** with two deliverables:
+
+| Part | What reviewers use | Where it runs | Git remote |
+|------|-------------------|---------------|------------|
+| **1 — Mobile** | Android APK + local Docker | Emulator/phone → `http://10.0.2.2:3000` or your PC IP | **Gitea** (school submission) |
+| **2 — Web** | Browser + cloud API | **Render** → `https://YOUR-SERVICE.onrender.com` | **GitHub** → [beerustuhoo/messenger](https://github.com/beerustuhoo/messenger) |
+
+**Will web changes break mobile?** No — not if you keep using the APK with **local Docker** (default). Web-only UI (`WebShell`, dual panes, polls button) is behind `kIsWeb`. On Android you still get `HomeScreen`, voice messages, and notifications. The shared backend gained group/search/poll APIs; mobile direct-chat flow is unchanged.
+
+**Optional:** Point the APK at Render (**Server settings** → your `https://…onrender.com` URL) to use the same cloud database as web.
+
+See **[RENDER.md](RENDER.md)** for always-online cloud deployment.
+
+---
+
 ## Project overview
 
 Mobile Messenger lets users register, verify email, manage profiles, search for contacts, send chat invitations, exchange text/image/video/audio messages, and see delivery/read receipts with typing indicators. Sensitive data (emails, profile text, message content) is encrypted at rest using **AES-256-GCM** before being stored in PostgreSQL.
