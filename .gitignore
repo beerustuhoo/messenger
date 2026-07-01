@@ -1,7 +1,6 @@
 backend/node_modules/
 backend/uploads/
-backend/public/*
-!backend/public/.gitkeep
+# backend/public is committed for Render deploy (see scripts/prepare-render-deploy.ps1)
 mobile/.dart_tool/
 mobile/build/
 mobile/android/build/
