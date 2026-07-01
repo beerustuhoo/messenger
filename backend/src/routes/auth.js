@@ -71,7 +71,7 @@ router.post('/register', async (req, res) => {
       [emailHash(email), encrypt(email.toLowerCase().trim()), uname, passwordHash, verificationToken]
     );
     const user = result.rows[0];
-    await sendVerificationEmail(email, verificationToken);
+    const mailResult = await sendVerificationEmail(email, verificationToken);
 
     const { accessToken, refreshToken } = signTokens(user.id);
     await storeRefreshToken(user.id, refreshToken);
@@ -86,7 +86,10 @@ router.post('/register', async (req, res) => {
       accessToken,
       refreshToken,
       verificationToken,
-      message: 'Account created. Please verify your email.',
+      emailSent: mailResult.ok === true,
+      message: mailResult.ok
+        ? 'Account created. Please check your email to verify.'
+        : 'Account created. Email could not be sent — use Verify now in the app.',
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -214,8 +217,12 @@ router.post('/resend-verification', authMiddleware, async (req, res) => {
   const token = crypto.randomBytes(32).toString('hex');
   await pool.query('UPDATE users SET verification_token = $1 WHERE id = $2', [token, req.userId]);
   const email = decrypt(user.email_enc);
-  await sendVerificationEmail(email, token);
-  res.json({ message: 'Verification email sent', verificationToken: token });
+  const mailResult = await sendVerificationEmail(email, token);
+  res.json({
+    message: mailResult.ok ? 'Verification email sent' : 'Could not send email — check SMTP settings',
+    verificationToken: token,
+    emailSent: mailResult.ok === true,
+  });
 });
 
 router.get('/verification-token', authMiddleware, async (req, res) => {

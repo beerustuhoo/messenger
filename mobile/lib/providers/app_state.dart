@@ -36,6 +36,7 @@ class AppState extends ChangeNotifier {
   String? errorMessage;
   String? fieldError;
   String? pendingVerificationToken;
+  bool lastVerificationEmailSent = false;
   List<ChatModel> chats = [];
   List<ChatModel> archivedChats = [];
   List<InviteModel> pendingInvites = [];
@@ -347,7 +348,9 @@ class AppState extends ChangeNotifier {
         'password': password,
         'username': username,
       });
-      await _handleAuthResponse(_expectMap(data, 'register'));
+      final map = _expectMap(data, 'register');
+      lastVerificationEmailSent = map['emailSent'] as bool? ?? false;
+      await _handleAuthResponse(map);
       return true;
     } on ApiException catch (e) {
       fieldError = e.field;
@@ -884,11 +887,14 @@ class AppState extends ChangeNotifier {
     await verifyEmail(token);
   }
 
-  Future<void> resendVerification() async {
+  Future<bool> resendVerification() async {
     final data = await api.post('/auth/resend-verification', {}) as Map<String, dynamic>;
     if (data['verificationToken'] != null) {
       await _setPendingVerificationToken(data['verificationToken'] as String);
     }
+    lastVerificationEmailSent = data['emailSent'] as bool? ?? false;
+    notifyListeners();
+    return lastVerificationEmailSent;
   }
 
   Future<void> forgotPassword(String email) async {

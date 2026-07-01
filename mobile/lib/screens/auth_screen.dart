@@ -146,12 +146,22 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
               tabs: const [Tab(text: 'Login'), Tab(text: 'Register')],
             ),
             if (state.errorMessage != null)
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  state.errorMessage!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                  textAlign: TextAlign.center,
+              Material(
+                color: Theme.of(context).colorScheme.errorContainer,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.error_outline, color: Theme.of(context).colorScheme.error),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          state.errorMessage!,
+                          style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             Expanded(
@@ -270,12 +280,15 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                       });
                     }
                     if (ok && mounted) {
+                      final sent = state.lastVerificationEmailSent;
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
+                        SnackBar(
                           content: Text(
-                            'Account created! Tap Verify now on the next screen.',
+                            sent
+                                ? 'Account created! Check your inbox (and spam) for the verification email.'
+                                : 'Account created! Email was not sent — tap Verify now on the next screen, or configure SMTP on the server.',
                           ),
-                          duration: Duration(seconds: 5),
+                          duration: const Duration(seconds: 6),
                         ),
                       );
                     }

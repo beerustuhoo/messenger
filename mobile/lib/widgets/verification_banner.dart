@@ -15,6 +15,8 @@ class VerificationBanner extends StatelessWidget {
     }
 
     final token = state.pendingVerificationToken;
+    final emailSent = state.lastVerificationEmailSent;
+
     return Material(
       color: Theme.of(context).colorScheme.primaryContainer,
       child: Padding(
@@ -24,9 +26,20 @@ class VerificationBanner extends StatelessWidget {
           children: [
             Text('Verify your email', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 4),
-            const Text(
-              'Tap Verify now — or use the code from your email. On Render, check your real inbox (SMTP must be configured).',
+            Text(
+              emailSent
+                  ? 'We sent a verification email to ${state.user!.email ?? 'your address'}. Open the link in that message, or use Verify now below.'
+                  : 'No verification email was sent (SMTP is not configured on the server). Use Verify now below, or ask the admin to set SMTP on Render.',
             ),
+            if (!emailSent) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Render needs real SMTP (e.g. Resend). See RENDER.md in the repo.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+              ),
+            ],
             if (token != null) ...[
               const SizedBox(height: 8),
               SelectableText(
@@ -69,10 +82,16 @@ class VerificationBanner extends StatelessWidget {
                 TextButton(
                   onPressed: () async {
                     try {
-                      await state.resendVerification();
+                      final sent = await state.resendVerification();
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('New code sent — check your email')),
+                          SnackBar(
+                            content: Text(
+                              sent
+                                  ? 'Verification email sent — check your inbox and spam folder.'
+                                  : 'Could not send email. SMTP is not set up on the server.',
+                            ),
+                          ),
                         );
                       }
                     } catch (e) {
@@ -81,7 +100,7 @@ class VerificationBanner extends StatelessWidget {
                       }
                     }
                   },
-                  child: const Text('Resend'),
+                  child: const Text('Resend email'),
                 ),
               ],
             ),

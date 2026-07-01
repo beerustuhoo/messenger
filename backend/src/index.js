@@ -7,6 +7,7 @@ const path = require('path');
 const { Server } = require('socket.io');
 const { initDb, pool } = require('./db');
 const { setupSocket } = require('./socket');
+const { isSmtpConfigured } = require('./email');
 
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
@@ -64,6 +65,7 @@ async function main() {
         database: true,
         encryption: Boolean(process.env.ENCRYPTION_KEY?.length === 64),
         jwt: Boolean(process.env.JWT_SECRET),
+        smtp: isSmtpConfigured(),
       });
     } catch (err) {
       console.error('Readiness check failed:', err);
