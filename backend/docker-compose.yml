@@ -1,0 +1,47 @@
+name: mobile-messenger
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: messenger
+      POSTGRES_PASSWORD: messenger_secret
+      POSTGRES_DB: messenger
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U messenger -d messenger"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://messenger:messenger_secret@db:5432/messenger
+      JWT_SECRET: reviewer-jwt-secret-change-in-production
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_FROM: noreply@messenger.local
+      APP_URL: http://localhost:3000
+      UPLOAD_DIR: /app/uploads
+      FCM_SERVER_KEY: ""
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "8025:8025"
+
+volumes:
+  pgdata:
+  uploads:

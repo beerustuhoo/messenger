@@ -1,0 +1,10 @@
+backend/node_modules/
+backend/uploads/
+mobile/.dart_tool/
+mobile/build/
+mobile/android/build/
+*.iml
+.idea/
+.env
+releases/app-release-phone.apk
+releases/*.apk
