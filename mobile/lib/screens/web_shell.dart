@@ -334,10 +334,12 @@ class _OpenChatPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
     final chat = context.watch<AppState>().chatById(chatId);
     if (chat == null) {
       return const Center(child: CircularProgressIndicator());
     }
+    final isTyping = state.isTypingInChat(chatId);
     return Column(
       children: [
         Material(
@@ -347,7 +349,20 @@ class _OpenChatPane extends StatelessWidget {
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  child: Text(chat.displayTitle, style: Theme.of(context).textTheme.titleMedium),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(chat.displayTitle, style: Theme.of(context).textTheme.titleMedium),
+                      if (isTyping)
+                        Text(
+                          chat.isGroup ? 'Someone is typing…' : 'typing…',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                fontStyle: FontStyle.italic,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
               IconButton(icon: const Icon(Icons.close), onPressed: onClose),

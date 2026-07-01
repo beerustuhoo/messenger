@@ -129,6 +129,20 @@ class _ChatScreenState extends State<ChatScreen> {
             },
           ),
         ),
+        if (widget.embedded && isTyping)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                widget.chat.isGroup ? 'Someone is typing…' : 'typing…',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontStyle: FontStyle.italic,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+              ),
+            ),
+          ),
         _inputBar(state),
       ],
     );

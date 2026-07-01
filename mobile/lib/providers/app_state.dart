@@ -107,13 +107,15 @@ class AppState extends ChangeNotifier {
     });
 
     socket.on('typing:start', (data) {
-      final map = Map<String, dynamic>.from(data as Map);
+      if (data is! Map) return;
+      final map = Map<String, dynamic>.from(data);
       typingUsers['${map['chatId']}:${map['userId']}'] = true;
       notifyListeners();
     });
 
     socket.on('typing:stop', (data) {
-      final map = Map<String, dynamic>.from(data as Map);
+      if (data is! Map) return;
+      final map = Map<String, dynamic>.from(data);
       typingUsers.remove('${map['chatId']}:${map['userId']}');
       notifyListeners();
     });
@@ -183,7 +185,14 @@ class AppState extends ChangeNotifier {
   }
 
   bool isTypingInChat(String chatId) {
-    return typingUsers.keys.any((k) => k.startsWith('$chatId:') && typingUsers[k] == true);
+    final me = user?.id;
+    return typingUsers.entries.any((e) {
+      if (!e.value) return false;
+      final parts = e.key.split(':');
+      if (parts.isEmpty || parts[0] != chatId) return false;
+      if (me != null && parts.length > 1 && parts[1] == me) return false;
+      return true;
+    });
   }
 
   Future<void> init() async {
