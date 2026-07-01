@@ -4,11 +4,12 @@ const { authMiddleware } = require('../middleware');
 
 const router = express.Router();
 
-async function usersShareChat(userId1, userId2) {
+async function usersShareDirectChat(userId1, userId2) {
   const result = await pool.query(
     `SELECT cm1.chat_id FROM chat_members cm1
      JOIN chat_members cm2 ON cm1.chat_id = cm2.chat_id
-     WHERE cm1.user_id = $1 AND cm2.user_id = $2 LIMIT 1`,
+     JOIN chats c ON c.id = cm1.chat_id
+     WHERE cm1.user_id = $1 AND cm2.user_id = $2 AND c.type = 'direct' LIMIT 1`,
     [userId1, userId2]
   );
   return result.rows.length > 0;
@@ -34,7 +35,7 @@ router.post('/send', authMiddleware, async (req, res) => {
   if (!toUserId) return res.status(400).json({ error: 'toUserId required' });
   if (toUserId === req.userId) return res.status(400).json({ error: 'Cannot invite yourself' });
 
-  if (await usersShareChat(req.userId, toUserId)) {
+  if (await usersShareDirectChat(req.userId, toUserId)) {
     return res.status(400).json({ error: 'User is already in your chat list' });
   }
 
@@ -77,7 +78,7 @@ router.post('/:id/respond', authMiddleware, async (req, res) => {
   await pool.query("UPDATE invites SET status = 'accepted' WHERE id = $1", [inv.id]);
 
   const chatResult = await pool.query(
-    'INSERT INTO chats DEFAULT VALUES RETURNING id'
+    "INSERT INTO chats (type) VALUES ('direct') RETURNING id"
   );
   const chatId = chatResult.rows[0].id;
   await pool.query(

@@ -39,6 +39,11 @@ class AppState extends ChangeNotifier {
   List<ChatModel> chats = [];
   List<ChatModel> archivedChats = [];
   List<InviteModel> pendingInvites = [];
+  List<GroupInviteModel> pendingGroupInvites = [];
+  final List<String> openChatIds = [];
+  List<MessageModel> searchResults = [];
+  String? searchQuery;
+  String? bannerError;
   final Map<String, List<MessageModel>> messagesByChat = {};
   final Map<String, bool> typingUsers = {};
   final Map<String, _OutboxItem> _outbox = {};
@@ -115,11 +120,32 @@ class AppState extends ChangeNotifier {
 
     socket.on('invite:received', (_) {
       loadInvites();
+      loadGroupInvites();
       NotificationService.show(
         id: 2,
         title: 'New invitation',
         body: 'You received a chat invitation',
       );
+    });
+
+    socket.on('group-invite:received', (_) {
+      loadGroupInvites();
+      NotificationService.show(
+        id: 3,
+        title: 'Group invitation',
+        body: 'You were invited to a group chat',
+      );
+    });
+
+    socket.on('poll:updated', (data) {
+      final poll = PollModel.fromJson(Map<String, dynamic>.from(data as Map));
+      final list = messagesByChat[poll.chatId];
+      if (list == null) return;
+      final idx = list.indexWhere((m) => m.pollId == poll.id || m.id == poll.messageId);
+      if (idx >= 0) {
+        list[idx] = list[idx].copyWith(poll: poll);
+        notifyListeners();
+      }
     });
 
     socket.on('chat:created', (_) => loadChats());
@@ -229,7 +255,7 @@ class AppState extends ChangeNotifier {
   void _loadInitialDataSafely() {
     Future(() async {
       try {
-        await Future.wait([loadChats(), loadInvites()]);
+        await Future.wait([loadChats(), loadInvites(), loadGroupInvites()]);
       } catch (_) {}
     });
   }
@@ -364,7 +390,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> logout() async {
     try {
-      await api.post('/auth/logout');
+      final (_, refresh) = await storage.loadTokens();
+      await api.post('/auth/logout', refresh != null ? {'refreshToken': refresh} : {});
     } catch (_) {}
     await _clearSession();
     status = AppStatus.unauthenticated;
@@ -629,6 +656,125 @@ class AppState extends ChangeNotifier {
   Future<void> muteChat(String chatId, bool muted) async {
     await api.post('/chats/$chatId/mute', {'muted': muted});
     await loadChats();
+  }
+
+  void openChat(String chatId) {
+    if (openChatIds.contains(chatId)) return;
+    if (openChatIds.length >= 2) openChatIds.removeAt(0);
+    openChatIds.add(chatId);
+    loadMessages(chatId);
+    notifyListeners();
+  }
+
+  void closeChat(String chatId) {
+    openChatIds.remove(chatId);
+    notifyListeners();
+  }
+
+  Future<void> createGroup(String name, List<String> memberIds) async {
+    await api.post('/chats/groups', {'name': name, 'memberIds': memberIds});
+    await loadChats();
+  }
+
+  Future<void> loadGroupInvites() async {
+    try {
+      final data = await api.get('/group-invites/pending') as List;
+      pendingGroupInvites =
+          data.map((e) => GroupInviteModel.fromJson(e as Map<String, dynamic>)).toList();
+      notifyListeners();
+    } catch (e) {
+      _handleError(e);
+    }
+  }
+
+  Future<void> sendGroupInvite(String chatId, String toUserId) async {
+    await api.post('/group-invites/send', {'chatId': chatId, 'toUserId': toUserId});
+  }
+
+  Future<void> respondGroupInvite(String id, bool accept) async {
+    await api.post('/group-invites/$id/respond', {'accept': accept});
+    await loadGroupInvites();
+    await loadChats();
+  }
+
+  Future<void> searchMessages(String q, {String? chatId}) async {
+    searchQuery = q;
+    if (q.trim().length < 2) {
+      searchResults = [];
+      notifyListeners();
+      return;
+    }
+    var path = '/messages/search?q=${Uri.encodeComponent(q.trim())}';
+    if (chatId != null) path += '&chatId=$chatId';
+    final data = await api.get(path) as List;
+    searchResults = data.map((e) => MessageModel.fromJson(e as Map<String, dynamic>)).toList();
+    notifyListeners();
+  }
+
+  void clearSearch() {
+    searchQuery = null;
+    searchResults = [];
+    notifyListeners();
+  }
+
+  Future<void> createPoll(
+    String chatId, {
+    required String question,
+    required List<String> options,
+    bool anonymous = false,
+    bool multipleChoice = false,
+  }) async {
+    final data = await api.post('/messages/$chatId/poll', {
+      'question': question,
+      'options': options,
+      'anonymous': anonymous,
+      'multipleChoice': multipleChoice,
+    });
+    final msg = MessageModel.fromJson(data as Map<String, dynamic>);
+    messagesByChat.putIfAbsent(chatId, () => []).add(msg);
+    await loadChats();
+    notifyListeners();
+  }
+
+  Future<void> votePoll(String pollId, String optionId) async {
+    final data = await api.post('/polls/$pollId/vote', {'optionId': optionId});
+    _applyPollUpdate(PollModel.fromJson(data as Map<String, dynamic>));
+  }
+
+  Future<void> retractPollVote(String pollId, {String? optionId}) async {
+    final path = optionId != null ? '/polls/$pollId/vote?optionId=$optionId' : '/polls/$pollId/vote';
+    final data = await api.delete(path);
+    _applyPollUpdate(PollModel.fromJson(data as Map<String, dynamic>));
+  }
+
+  void _applyPollUpdate(PollModel poll) {
+    final list = messagesByChat[poll.chatId];
+    if (list == null) return;
+    final idx = list.indexWhere((m) => m.pollId == poll.id);
+    if (idx >= 0) list[idx] = list[idx].copyWith(poll: poll);
+    notifyListeners();
+  }
+
+  void showBannerError(String message) {
+    bannerError = message;
+    notifyListeners();
+  }
+
+  void clearBannerError() {
+    bannerError = null;
+    notifyListeners();
+  }
+
+  void _handleError(Object e) {
+    final msg = e is ApiException ? e.message : 'Something went wrong. Please try again.';
+    showBannerError(msg);
+  }
+
+  ChatModel? chatById(String id) {
+    for (final c in [...chats, ...archivedChats]) {
+      if (c.id == id) return c;
+    }
+    return null;
   }
 
   Future<void> updateProfile({String? username, String? about}) async {

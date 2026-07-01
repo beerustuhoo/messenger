@@ -298,6 +298,55 @@ Fields encrypted before insert: `email_enc`, `about_enc`, `messages.content_enc`
 
 ---
 
+## Web Messenger
+
+Full Web Messenger documentation: **[README-WEB.md](README-WEB.md)** (setup, deployment, requirements checklist, reviewer test flow).
+
+The same Flutter codebase runs as **Web Messenger** in the browser, sharing the backend and database with the mobile app.
+
+### Run locally
+
+```bash
+.\start-backend.ps1
+cd mobile
+flutter run -d chrome --dart-define=API_URL=http://localhost:3000
+```
+
+## Deployment (Render — public URL)
+
+Deploy API + Web Messenger on one URL so **any computer** and the **mobile APK** can connect.
+
+**Full guide:** [RENDER.md](RENDER.md)
+
+Quick summary:
+
+1. Connect repo to Render → **New Blueprint** (uses `render.yaml`)
+2. Set `ENCRYPTION_KEY`, `APP_URL`, and SMTP env vars
+3. Run `.\scripts\prepare-render-deploy.ps1` → commit `backend/public` → push
+4. Open `https://YOUR-SERVICE.onrender.com` (web)
+5. Mobile: **Server settings** → same URL
+
+---
+
+## Deployment (local Docker)
+
+### Web-only features
+
+| Feature | Description |
+|---------|-------------|
+| **Responsive UI** | Sidebar chat list + up to **2 chats** open side by side |
+| **Group chats** | Create groups, invite members, accept/decline group invitations |
+| **Message search** | Search text in chats; results highlighted and navigable |
+| **Group polls** | Create polls (anonymous or public), vote, change/retract vote |
+| **Error banner** | Network/API errors shown with dismiss; app keeps last stable state |
+
+### Default API URL
+
+- **Web:** `http://localhost:3000` (auto when no saved Server URL)
+- **Android:** `http://10.0.2.2:3000` or configure in **Server settings**
+
+---
+
 ## Stop services
 
 ```bash

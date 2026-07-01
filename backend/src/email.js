@@ -4,11 +4,17 @@ let transporter;
 
 function getTransporter() {
   if (!transporter) {
+    const port = parseInt(process.env.SMTP_PORT || '1025', 10);
+    const secure = process.env.SMTP_SECURE === 'true' || port === 465;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
     transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'localhost',
-      port: parseInt(process.env.SMTP_PORT || '1025', 10),
-      secure: false,
-      ignoreTLS: true,
+      port,
+      secure,
+      auth: user && pass ? { user, pass } : undefined,
+      ...(secure ? {} : { requireTLS: process.env.SMTP_REQUIRE_TLS === 'true' }),
+      ignoreTLS: process.env.SMTP_IGNORE_TLS === 'true',
     });
   }
   return transporter;

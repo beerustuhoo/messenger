@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -12,6 +13,9 @@ class AppConfig {
     'API_URL',
     defaultValue: 'http://10.0.2.2:3000',
   );
+
+  /// When [compileDefault] is `AUTO`, web uses the page origin (same-host deploy e.g. Render).
+  static const bool useWebOrigin = compileDefault == 'AUTO';
 
   static String _baseUrl = compileDefault;
 
@@ -27,6 +31,12 @@ class AppConfig {
     final saved = prefs.getString(_prefsKey);
     if (saved != null && saved.isNotEmpty) {
       _baseUrl = normalizeBaseUrl(saved);
+    } else if (kIsWeb) {
+      if (useWebOrigin) {
+        _baseUrl = Uri.base.origin;
+      } else if (compileDefault == 'http://10.0.2.2:3000') {
+        _baseUrl = 'http://localhost:3000';
+      }
     }
   }
 
@@ -70,8 +80,7 @@ class AppConfig {
     } catch (_) {
       return (
         ok: false,
-        message:
-            'Cannot reach $base. Start Docker with .\\start-backend.ps1 and check the URL.',
+        message: 'Cannot reach $base. Check the URL and that the server is running.',
       );
     }
   }

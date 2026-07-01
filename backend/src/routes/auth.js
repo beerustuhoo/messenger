@@ -156,7 +156,11 @@ router.post('/refresh', async (req, res) => {
 });
 
 router.post('/logout', authMiddleware, async (req, res) => {
-  await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [req.userId]);
+  const { refreshToken } = req.body;
+  if (refreshToken) {
+    const hash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+    await pool.query('DELETE FROM refresh_tokens WHERE token_hash = $1 AND user_id = $2', [hash, req.userId]);
+  }
   res.json({ ok: true });
 });
 

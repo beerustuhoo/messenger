@@ -1,21 +1,31 @@
 import 'dart:async';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-import 'package:record/record.dart';
 import 'package:video_player/video_player.dart';
 import '../config.dart';
 import '../models/models.dart';
 import '../providers/app_state.dart';
+import '../utils/image_bytes.dart';
+import '../utils/voice_recorder.dart';
 import '../widgets/avatar.dart';
 import '../widgets/audio_message_player.dart';
+import '../widgets/poll_card.dart';
 
 class ChatScreen extends StatefulWidget {
   final ChatModel chat;
-  const ChatScreen({super.key, required this.chat});
+  final bool embedded;
+  final String? highlightQuery;
+  final String? highlightMessageId;
+
+  const ChatScreen({
+    super.key,
+    required this.chat,
+    this.embedded = false,
+    this.highlightQuery,
+    this.highlightMessageId,
+  });
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -24,19 +34,42 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _controller = TextEditingController();
   final _scroll = ScrollController();
-  final _recorder = AudioRecorder();
+  final _recorder = VoiceRecorder();
   final _picker = ImagePicker();
   bool _recording = false;
-  String? _audioPath;
   Duration _recordDuration = Duration.zero;
   Timer? _recordTimer;
+  final _messageKeys = <String, GlobalKey>{};
 
   @override
   void initState() {
     super.initState();
     _controller.addListener(_onTyping);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AppState>().loadMessages(widget.chat.id);
+      final state = context.read<AppState>();
+      state.loadMessages(widget.chat.id);
+      state.socket.joinChat(widget.chat.id);
+      _scrollToHighlight();
+    });
+  }
+
+  @override
+  void didUpdateWidget(ChatScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.highlightMessageId != widget.highlightMessageId) {
+      _scrollToHighlight();
+    }
+  }
+
+  void _scrollToHighlight() {
+    final id = widget.highlightMessageId;
+    if (id == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final key = _messageKeys[id];
+      final ctx = key?.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      }
     });
   }
 
@@ -65,52 +98,118 @@ class _ChatScreenState extends State<ChatScreen> {
     final messages = state.messagesByChat[widget.chat.id] ?? [];
     final isTyping = state.isTypingInChat(widget.chat.id);
 
+    final body = Column(
+      children: [
+        Expanded(
+          child: ListView.builder(
+            controller: _scroll,
+            padding: const EdgeInsets.all(12),
+            itemCount: messages.length,
+            itemBuilder: (context, i) {
+              final msg = messages[i];
+              final key = _messageKeys.putIfAbsent(msg.id, GlobalKey.new);
+              return KeyedSubtree(
+                key: key,
+                child: _MessageBubble(
+                  message: msg,
+                  showSender: widget.chat.isGroup,
+                  highlightQuery: widget.highlightQuery,
+                  isSearchFocus: widget.highlightMessageId == msg.id,
+                  onEdit: (m) => _editMessage(m),
+                  onDelete: (m) => state.deleteMessage(m.id),
+                  onRetry: (m) => _retryMessage(state, m),
+                  onVisible: (m) {
+                    if (m.isLocal) return;
+                    if (!m.isMine && m.status != 'read') {
+                      state.markRead(m.id);
+                    }
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+        _inputBar(state),
+      ],
+    );
+
+    if (widget.embedded) return body;
+
     return Scaffold(
       appBar: AppBar(
         title: Row(
           children: [
             AvatarWidget(
-              url: widget.chat.otherUser.avatarUrl,
+              url: widget.chat.isGroup ? null : widget.chat.otherUser.avatarUrl,
               radius: 18,
-              fallbackLetter: widget.chat.otherUser.username,
+              fallbackLetter: widget.chat.displayTitle,
             ),
             const SizedBox(width: 12),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(widget.chat.otherUser.username),
+                Text(widget.chat.displayTitle),
                 if (isTyping)
                   Text('typing...', style: Theme.of(context).textTheme.bodySmall),
               ],
             ),
           ],
         ),
+        actions: [
+          if (widget.chat.isGroup)
+            IconButton(icon: const Icon(Icons.poll), onPressed: () => _createPoll(state)),
+        ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView.builder(
-              controller: _scroll,
-              padding: const EdgeInsets.all(12),
-              itemCount: messages.length,
-              itemBuilder: (context, i) => _MessageBubble(
-                message: messages[i],
-                onEdit: (m) => _editMessage(m),
-                onDelete: (m) => state.deleteMessage(m.id),
-                onRetry: (m) => _retryMessage(state, m),
-                onVisible: (m) {
-                  if (m.isLocal) return;
-                  if (!m.isMine && m.status != 'read') {
-                    state.markRead(m.id);
-                  }
-                },
+      body: body,
+    );
+  }
+
+  Future<void> _createPoll(AppState state) async {
+    final q = TextEditingController();
+    final opts = TextEditingController();
+    final anon = ValueNotifier(false);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Create poll'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: q, decoration: const InputDecoration(labelText: 'Question')),
+            TextField(
+              controller: opts,
+              decoration: const InputDecoration(labelText: 'Options (one per line)'),
+              maxLines: 4,
+            ),
+            ValueListenableBuilder(
+              valueListenable: anon,
+              builder: (_, v, __) => CheckboxListTile(
+                value: v,
+                onChanged: (x) => anon.value = x ?? false,
+                title: const Text('Anonymous votes'),
+                contentPadding: EdgeInsets.zero,
               ),
             ),
-          ),
-          _inputBar(state),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Create')),
         ],
       ),
     );
+    if (ok != true || !mounted) return;
+    try {
+      final options = opts.text.split('\n').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+      await state.createPoll(
+        widget.chat.id,
+        question: q.text.trim(),
+        options: options,
+        anonymous: anon.value,
+      );
+    } catch (e) {
+      state.showBannerError(e.toString());
+    }
   }
 
   String _formatRecordDuration(Duration d) {
@@ -153,13 +252,16 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             Row(
           children: [
-            IconButton(
-              icon: Icon(_recording ? Icons.stop_circle : Icons.mic),
-              color: _recording ? Colors.red : null,
-              onPressed: _toggleRecording,
-            ),
+            if (!kIsWeb)
+              IconButton(
+                icon: Icon(_recording ? Icons.stop_circle : Icons.mic),
+                color: _recording ? Colors.red : null,
+                onPressed: _toggleRecording,
+              ),
             IconButton(icon: const Icon(Icons.image), onPressed: () => _pickMedia(state, true)),
             IconButton(icon: const Icon(Icons.videocam), onPressed: () => _pickMedia(state, false)),
+            if (widget.chat.isGroup && kIsWeb)
+              IconButton(icon: const Icon(Icons.poll), onPressed: () => _createPoll(state)),
             Expanded(
               child: TextField(
                 controller: _controller,
@@ -210,8 +312,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (image) {
       final file = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
       if (file == null) return;
-      var bytes = await FlutterImageCompress.compressWithFile(file.path, quality: 70) ??
-          await file.readAsBytes();
+      final bytes = await compressPickedImage(file);
       if (bytes.length > 20 * 1024 * 1024 && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('File exceeds 20MB limit')),
@@ -244,17 +345,17 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _toggleRecording() async {
+    if (kIsWeb) return;
     final state = context.read<AppState>();
     if (_recording) {
       _recordTimer?.cancel();
       _recordTimer = null;
-      final path = await _recorder.stop();
+      final bytes = await _recorder.stopAndReadBytes();
       setState(() {
         _recording = false;
         _recordDuration = Duration.zero;
       });
-      if (path != null) {
-        final bytes = await File(path).readAsBytes();
+      if (bytes != null) {
         try {
           await state.sendMedia(widget.chat.id, bytes, 'audio.m4a', 'audio');
           _scrollToEnd();
@@ -264,9 +365,9 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     } else {
       if (await _recorder.hasPermission()) {
-        final dir = await getTemporaryDirectory();
-        _audioPath = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
-        await _recorder.start(const RecordConfig(), path: _audioPath!);
+        final path = await _recorder.preparePath();
+        if (path == null) return;
+        await _recorder.start(path);
         _recordTimer?.cancel();
         _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
           if (mounted) {
@@ -316,6 +417,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
 class _MessageBubble extends StatefulWidget {
   final MessageModel message;
+  final bool showSender;
+  final String? highlightQuery;
+  final bool isSearchFocus;
   final void Function(MessageModel) onEdit;
   final void Function(MessageModel) onDelete;
   final void Function(MessageModel) onRetry;
@@ -323,6 +427,9 @@ class _MessageBubble extends StatefulWidget {
 
   const _MessageBubble({
     required this.message,
+    this.showSender = false,
+    this.highlightQuery,
+    this.isSearchFocus = false,
     required this.onEdit,
     required this.onDelete,
     required this.onRetry,
@@ -390,18 +497,23 @@ class _MessageBubbleState extends State<_MessageBubble> {
           decoration: BoxDecoration(
             color: color,
             borderRadius: BorderRadius.circular(12),
-            border: isFailed
-                ? Border.all(color: Theme.of(context).colorScheme.error, width: 1)
-                : null,
+            border: widget.isSearchFocus
+                ? Border.all(color: Theme.of(context).colorScheme.tertiary, width: 2)
+                : isFailed
+                    ? Border.all(color: Theme.of(context).colorScheme.error, width: 1)
+                    : null,
           ),
           child: Column(
             crossAxisAlignment: align,
             children: [
+              if (widget.showSender && !m.isMine && m.senderUsername != null)
+                Text(m.senderUsername!, style: Theme.of(context).textTheme.labelSmall),
               if (m.deleted)
                 const Text('Message deleted', style: TextStyle(fontStyle: FontStyle.italic))
+              else if (m.type == 'poll')
+                PollCard(message: m)
               else if (m.type == 'text')
-                Text(m.content ?? '',
-                    style: m.edited ? const TextStyle(fontStyle: FontStyle.italic) : null)
+                _highlightedText(m.content ?? '', m.edited)
               else if (m.type == 'image')
                 m.mediaUrl != null
                     ? Image.network(AppConfig.mediaUrl(m.mediaUrl!), height: 180, fit: BoxFit.cover)
@@ -459,6 +571,28 @@ class _MessageBubbleState extends State<_MessageBubble> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _highlightedText(String text, bool edited) {
+    final baseStyle = edited ? const TextStyle(fontStyle: FontStyle.italic) : null;
+    final q = widget.highlightQuery?.trim().toLowerCase();
+    if (q == null || q.length < 2) return Text(text, style: baseStyle);
+    final lower = text.toLowerCase();
+    final start = lower.indexOf(q);
+    if (start < 0) return Text(text, style: baseStyle);
+    return RichText(
+      text: TextSpan(
+        style: DefaultTextStyle.of(context).style.merge(baseStyle),
+        children: [
+          TextSpan(text: text.substring(0, start)),
+          TextSpan(
+            text: text.substring(start, start + q.length),
+            style: const TextStyle(backgroundColor: Colors.yellow),
+          ),
+          TextSpan(text: text.substring(start + q.length)),
+        ],
       ),
     );
   }

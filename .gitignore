@@ -1,5 +1,7 @@
 backend/node_modules/
 backend/uploads/
+backend/public/*
+!backend/public/.gitkeep
 mobile/.dart_tool/
 mobile/build/
 mobile/android/build/

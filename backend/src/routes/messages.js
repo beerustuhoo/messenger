@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const { pool } = require('../db');
 const { encrypt, decrypt } = require('../crypto');
 const { authMiddleware } = require('../middleware');
+const { getPollPayload } = require('./polls');
 
 const router = express.Router();
 const uploadDir = process.env.UPLOAD_DIR || './uploads';
@@ -30,11 +31,12 @@ async function isChatMember(userId, chatId) {
   return r.rows.length > 0;
 }
 
-function formatMessage(row, userId) {
+function formatMessage(row, userId, senderUsername) {
   return {
     id: row.id,
     chatId: row.chat_id,
     senderId: row.sender_id,
+    senderUsername: senderUsername || row.sender_username,
     type: row.type,
     content: row.deleted ? null : decrypt(row.content_enc),
     mediaUrl: row.deleted ? null : row.media_path,
@@ -45,8 +47,44 @@ function formatMessage(row, userId) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     isMine: row.sender_id === userId,
+    pollId: row.poll_id || null,
   };
 }
+
+router.get('/search', authMiddleware, async (req, res) => {
+  const q = (req.query.q || '').trim().toLowerCase();
+  const chatId = req.query.chatId;
+  if (q.length < 2) return res.status(400).json({ error: 'Query must be at least 2 characters' });
+
+  let query = `
+    SELECT m.*, u.username as sender_username, p.id as poll_id
+    FROM messages m
+    JOIN chat_members cm ON cm.chat_id = m.chat_id AND cm.user_id = $1
+    JOIN users u ON u.id = m.sender_id
+    LEFT JOIN polls p ON p.message_id = m.id
+    WHERE NOT m.deleted AND m.type = 'text'`;
+  const params = [req.userId];
+
+  if (chatId) {
+    query += ` AND m.chat_id = $2`;
+    params.push(chatId);
+  }
+
+  query += ` ORDER BY m.created_at DESC LIMIT 200`;
+
+  const result = await pool.query(query, params);
+  const matches = [];
+  for (const row of result.rows) {
+    const text = decrypt(row.content_enc);
+    if (text && text.toLowerCase().includes(q)) {
+      matches.push({
+        ...formatMessage(row, req.userId, row.sender_username),
+        matchIndex: text.toLowerCase().indexOf(q),
+      });
+    }
+  }
+  res.json(matches.slice(0, 50));
+});
 
 router.get('/:chatId', authMiddleware, async (req, res) => {
   if (!(await isChatMember(req.userId, req.params.chatId))) {
@@ -64,7 +102,21 @@ router.get('/:chatId', authMiddleware, async (req, res) => {
     params.push(limit);
   }
   const result = await pool.query(query, params);
-  res.json(result.rows.reverse().map((r) => formatMessage(r, req.userId)));
+  const rows = result.rows.reverse();
+  const formatted = [];
+  for (const r of rows) {
+    const u = await pool.query('SELECT username FROM users WHERE id = $1', [r.sender_id]);
+    const msg = formatMessage(r, req.userId, u.rows[0]?.username);
+    if (r.type === 'poll') {
+      const poll = await pool.query('SELECT id FROM polls WHERE message_id = $1', [r.id]);
+      if (poll.rows.length) {
+        msg.pollId = poll.rows[0].id;
+        msg.poll = await getPollPayload(poll.rows[0].id, req.userId);
+      }
+    }
+    formatted.push(msg);
+  }
+  res.json(formatted);
 });
 
 router.post('/:chatId/text', authMiddleware, async (req, res) => {
@@ -82,6 +134,50 @@ router.post('/:chatId/text', authMiddleware, async (req, res) => {
   );
   await pool.query('UPDATE chats SET updated_at = NOW() WHERE id = $1', [chatId]);
   const msg = formatMessage(result.rows[0], req.userId);
+  broadcastMessage(req, chatId, msg);
+  res.status(201).json(msg);
+});
+
+router.post('/:chatId/poll', authMiddleware, async (req, res) => {
+  const { question, options, anonymous = false, multipleChoice = false } = req.body;
+  const chatId = req.params.chatId;
+  if (!(await isChatMember(req.userId, chatId))) {
+    return res.status(403).json({ error: 'Not a member of this chat' });
+  }
+  if (!question?.trim()) return res.status(400).json({ error: 'Question required' });
+  if (!Array.isArray(options) || options.length < 2) {
+    return res.status(400).json({ error: 'At least 2 options required' });
+  }
+
+  const chat = await pool.query('SELECT type FROM chats WHERE id = $1', [chatId]);
+  if (!chat.rows.length || chat.rows[0].type !== 'group') {
+    return res.status(400).json({ error: 'Polls are only available in group chats' });
+  }
+
+  const msgResult = await pool.query(
+    `INSERT INTO messages (chat_id, sender_id, type, content_enc, status)
+     VALUES ($1, $2, 'poll', $3, 'sent') RETURNING *`,
+    [chatId, req.userId, encrypt(question.trim())]
+  );
+  const pollResult = await pool.query(
+    `INSERT INTO polls (message_id, question_enc, anonymous, multiple_choice, created_by)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [msgResult.rows[0].id, encrypt(question.trim()), !!anonymous, !!multipleChoice, req.userId]
+  );
+  const pollId = pollResult.rows[0].id;
+
+  for (let i = 0; i < options.length; i++) {
+    await pool.query(
+      `INSERT INTO poll_options (poll_id, text_enc, sort_order) VALUES ($1, $2, $3)`,
+      [pollId, encrypt(String(options[i]).trim()), i]
+    );
+  }
+
+  await pool.query('UPDATE chats SET updated_at = NOW() WHERE id = $1', [chatId]);
+  const u = await pool.query('SELECT username FROM users WHERE id = $1', [req.userId]);
+  const msg = formatMessage(msgResult.rows[0], req.userId, u.rows[0]?.username);
+  msg.pollId = pollId;
+  msg.poll = await getPollPayload(pollId, req.userId);
   broadcastMessage(req, chatId, msg);
   res.status(201).json(msg);
 });

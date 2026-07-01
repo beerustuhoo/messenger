@@ -5,15 +5,57 @@ const { authMiddleware } = require('../middleware');
 
 const router = express.Router();
 
+function mapChatRow(row, userId) {
+  const members = row.members || [];
+  const otherUser = row.other_user;
+  return {
+    id: row.id,
+    type: row.type || 'direct',
+    name: row.name,
+    updatedAt: row.updated_at,
+    archived: row.archived,
+    muted: row.muted,
+    members: members.map((m) => ({
+      id: m.id,
+      username: m.username,
+      avatarUrl: m.avatar_url,
+      role: m.role,
+    })),
+    otherUser: otherUser
+      ? { id: otherUser.id, username: otherUser.username, avatarUrl: otherUser.avatar_url }
+      : null,
+    lastMessage: row.last_message
+      ? {
+          id: row.last_message.id,
+          type: row.last_message.type,
+          preview: row.last_message.deleted
+            ? 'Message deleted'
+            : row.last_message.type === 'text'
+              ? decrypt(row.last_message.content_enc)
+              : row.last_message.type === 'poll'
+                ? '📊 Poll'
+                : `[${row.last_message.type}]`,
+          createdAt: row.last_message.created_at,
+          isMine: row.last_message.sender_id === userId,
+        }
+      : null,
+  };
+}
+
 router.get('/', authMiddleware, async (req, res) => {
   const archived = req.query.archived === 'true';
   const result = await pool.query(
-    `SELECT c.id, c.updated_at, cm.archived, cm.muted,
+    `SELECT c.id, c.type, c.name, c.updated_at, cm.archived, cm.muted,
             (SELECT row_to_json(u) FROM (
               SELECT u2.id, u2.username, u2.avatar_url
               FROM chat_members cm2 JOIN users u2 ON u2.id = cm2.user_id
-              WHERE cm2.chat_id = c.id AND cm2.user_id != $1 LIMIT 1
+              WHERE cm2.chat_id = c.id AND cm2.user_id != $1 AND c.type = 'direct' LIMIT 1
             ) u) as other_user,
+            (SELECT json_agg(json_build_object(
+              'id', u3.id, 'username', u3.username, 'avatar_url', u3.avatar_url, 'role', cm3.role
+            ) ORDER BY cm3.joined_at)
+             FROM chat_members cm3 JOIN users u3 ON u3.id = cm3.user_id
+             WHERE cm3.chat_id = c.id) as members,
             (SELECT row_to_json(m) FROM (
               SELECT m2.id, m2.type, m2.content_enc, m2.deleted, m2.created_at, m2.sender_id
               FROM messages m2 WHERE m2.chat_id = c.id AND NOT m2.deleted
@@ -26,26 +68,61 @@ router.get('/', authMiddleware, async (req, res) => {
     [req.userId, archived]
   );
 
-  res.json(result.rows.map((row) => ({
-    id: row.id,
-    updatedAt: row.updated_at,
-    archived: row.archived,
-    muted: row.muted,
-    otherUser: row.other_user,
-    lastMessage: row.last_message
-      ? {
-          id: row.last_message.id,
-          type: row.last_message.type,
-          preview: row.last_message.deleted
-            ? 'Message deleted'
-            : row.last_message.type === 'text'
-              ? decrypt(row.last_message.content_enc)
-              : `[${row.last_message.type}]`,
-          createdAt: row.last_message.created_at,
-          isMine: row.last_message.sender_id === req.userId,
-        }
-      : null,
-  })));
+  res.json(result.rows.map((row) => mapChatRow(row, req.userId)));
+});
+
+router.post('/groups', authMiddleware, async (req, res) => {
+  const { name, memberIds = [] } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'Group name required' });
+
+  const uniqueMembers = [...new Set(memberIds.filter((id) => id && id !== req.userId))];
+
+  const chatResult = await pool.query(
+    `INSERT INTO chats (type, name, created_by) VALUES ('group', $1, $2) RETURNING id`,
+    [name.trim(), req.userId]
+  );
+  const chatId = chatResult.rows[0].id;
+
+  await pool.query(
+    `INSERT INTO chat_members (chat_id, user_id, role) VALUES ($1, $2, 'admin')`,
+    [chatId, req.userId]
+  );
+
+  for (const memberId of uniqueMembers) {
+    await pool.query(
+      `INSERT INTO chat_members (chat_id, user_id, role) VALUES ($1, $2, 'member')
+       ON CONFLICT DO NOTHING`,
+      [chatId, memberId]
+    );
+  }
+
+  const io = req.app.get('io');
+  io.to(`user:${req.userId}`).emit('chat:created', { chatId });
+
+  res.status(201).json({ ok: true, chatId });
+});
+
+router.get('/:id/members', authMiddleware, async (req, res) => {
+  const member = await pool.query(
+    'SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2',
+    [req.params.id, req.userId]
+  );
+  if (!member.rows.length) return res.status(403).json({ error: 'Not a member' });
+
+  const result = await pool.query(
+    `SELECT u.id, u.username, u.avatar_url, cm.role
+     FROM chat_members cm JOIN users u ON u.id = cm.user_id
+     WHERE cm.chat_id = $1 ORDER BY cm.joined_at`,
+    [req.params.id]
+  );
+  res.json(
+    result.rows.map((r) => ({
+      id: r.id,
+      username: r.username,
+      avatarUrl: r.avatar_url,
+      role: r.role,
+    }))
+  );
 });
 
 router.post('/:id/archive', authMiddleware, async (req, res) => {

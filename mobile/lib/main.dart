@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'app_theme.dart';
@@ -6,6 +7,7 @@ import 'providers/app_state.dart';
 import 'providers/theme_provider.dart';
 import 'screens/auth_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/web_shell.dart';
 import 'services/notification_service.dart';
 
 void main() async {
@@ -31,7 +33,7 @@ class MessengerApp extends StatelessWidget {
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, theme, _) => MaterialApp(
-          title: 'Mobile Messenger',
+          title: kIsWeb ? 'Web Messenger' : 'Mobile Messenger',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
@@ -58,7 +60,7 @@ class _Root extends StatelessWidget {
       case AppStatus.unauthenticated:
         return const AuthScreen();
       case AppStatus.authenticated:
-        return const HomeScreen();
+        return kIsWeb ? const WebShell() : const HomeScreen();
     }
   }
 }

@@ -96,11 +96,16 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: ListTile(
                             leading: AvatarWidget(
                               url: chat.otherUser.avatarUrl,
-                              fallbackLetter: chat.otherUser.username,
+                              fallbackLetter: chat.displayTitle,
                             ),
                             title: Row(
                               children: [
-                                Expanded(child: Text(chat.otherUser.username)),
+                                if (chat.isGroup)
+                                  const Padding(
+                                    padding: EdgeInsets.only(right: 4),
+                                    child: Icon(Icons.groups, size: 16),
+                                  ),
+                                Expanded(child: Text(chat.displayTitle)),
                                 if (chat.muted) const Icon(Icons.notifications_off, size: 16),
                               ],
                             ),

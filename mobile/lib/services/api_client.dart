@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../config.dart';
 
@@ -69,12 +68,12 @@ class ApiClient {
         default:
           throw ApiException('Unsupported method');
       }
-    } on SocketException {
+    } on http.ClientException catch (e) {
+      throw ApiException('Network error: ${e.message}');
+    } catch (_) {
       throw ApiException(
         'Cannot reach server at ${AppConfig.apiBaseUrl}. Check Wi‑Fi and that the backend is running.',
       );
-    } on http.ClientException catch (e) {
-      throw ApiException('Network error: ${e.message}');
     }
 
     if (response.statusCode == 401 && !retried && _refreshToken != null) {

@@ -29,6 +29,8 @@ class SocketService {
       'typing:start',
       'typing:stop',
       'invite:received',
+      'group-invite:received',
+      'poll:updated',
       'chat:created',
       'notification',
     ]) {

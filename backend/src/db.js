@@ -79,6 +79,49 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
     `);
+
+    await client.query(`
+      ALTER TABLE chats ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'direct';
+      ALTER TABLE chats ADD COLUMN IF NOT EXISTS name VARCHAR(100);
+      ALTER TABLE chats ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id);
+      ALTER TABLE chat_members ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'member';
+
+      CREATE TABLE IF NOT EXISTS group_invites (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        chat_id UUID REFERENCES chats(id) ON DELETE CASCADE,
+        from_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        to_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(chat_id, to_user_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS polls (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        message_id UUID UNIQUE REFERENCES messages(id) ON DELETE CASCADE,
+        question_enc TEXT NOT NULL,
+        anonymous BOOLEAN DEFAULT FALSE,
+        multiple_choice BOOLEAN DEFAULT FALSE,
+        created_by UUID REFERENCES users(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS poll_options (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        poll_id UUID REFERENCES polls(id) ON DELETE CASCADE,
+        text_enc TEXT NOT NULL,
+        sort_order INT DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS poll_votes (
+        poll_id UUID REFERENCES polls(id) ON DELETE CASCADE,
+        option_id UUID REFERENCES poll_options(id) ON DELETE CASCADE,
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        PRIMARY KEY (poll_id, option_id, user_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_group_invites_to ON group_invites(to_user_id, status);
+    `);
   } finally {
     client.release();
   }

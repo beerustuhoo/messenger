@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
+const fs = require('fs');
 const path = require('path');
 const { Server } = require('socket.io');
 const { initDb } = require('./db');
@@ -11,7 +12,9 @@ const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const chatRoutes = require('./routes/chats');
 const inviteRoutes = require('./routes/invites');
+const groupInviteRoutes = require('./routes/group_invites');
 const messageRoutes = require('./routes/messages');
+const { router: pollRoutes } = require('./routes/polls');
 
 const PORT = process.env.PORT || 3000;
 const uploadDir = process.env.UPLOAD_DIR || './uploads';
@@ -20,6 +23,7 @@ async function main() {
   await initDb();
 
   const app = express();
+  app.set('trust proxy', 1);
   const server = http.createServer(app);
   const io = new Server(server, {
     cors: { origin: '*', methods: ['GET', 'POST'] },
@@ -38,7 +42,25 @@ async function main() {
   app.use('/api/users', userRoutes);
   app.use('/api/chats', chatRoutes);
   app.use('/api/invites', inviteRoutes);
+  app.use('/api/group-invites', groupInviteRoutes);
   app.use('/api/messages', messageRoutes);
+  app.use('/api/polls', pollRoutes);
+
+  const publicDir = path.join(__dirname, '../public');
+  if (fs.existsSync(publicDir)) {
+    app.use(express.static(publicDir));
+    app.get('*', (req, res, next) => {
+      if (
+        req.path.startsWith('/api') ||
+        req.path.startsWith('/socket.io') ||
+        req.path.startsWith('/uploads') ||
+        req.path === '/health'
+      ) {
+        return next();
+      }
+      res.sendFile(path.join(publicDir, 'index.html'));
+    });
+  }
 
   app.use((err, _req, res, _next) => {
     console.error(err);
