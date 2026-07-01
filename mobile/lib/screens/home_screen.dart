@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../widgets/avatar.dart';
+import '../widgets/verification_banner.dart';
 import 'chat_screen.dart';
 import 'profile_screen.dart';
 import 'search_screen.dart';
@@ -56,7 +57,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Column(
         children: [
-          if (!state.user!.emailVerified) _verificationBanner(context, state),
+          if (!state.user!.emailVerified) const VerificationBanner(),
           Expanded(
             child: RefreshIndicator(
               onRefresh: state.loadChats,
@@ -149,92 +150,6 @@ class _HomeScreenState extends State<HomeScreen> {
       return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
     }
     return '${dt.day}/${dt.month}';
-  }
-
-  Widget _verificationBanner(BuildContext context, AppState state) {
-    final token = state.pendingVerificationToken;
-    return Material(
-      color: Theme.of(context).colorScheme.primaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Verify your email',
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Tap Verify now — no copy/paste needed. The code is saved in the app after you register.',
-            ),
-            if (token != null) ...[
-              const SizedBox(height: 8),
-              SelectableText(
-                token,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontFamily: 'monospace',
-                    ),
-              ),
-            ],
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                FilledButton(
-                  onPressed: () async {
-                    try {
-                      await state.verifyEmailNow();
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Email verified!')),
-                        );
-                      }
-                    } catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('$e')),
-                        );
-                      }
-                    }
-                  },
-                  child: const Text('Verify now'),
-                ),
-                const SizedBox(width: 8),
-                if (token != null)
-                  TextButton(
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: token));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Code copied')),
-                      );
-                    },
-                    child: const Text('Copy code'),
-                  ),
-                TextButton(
-                  onPressed: () async {
-                    try {
-                      await state.resendVerification();
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('New code ready — tap Verify now')),
-                        );
-                      }
-                    } catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('$e')),
-                        );
-                      }
-                    }
-                  },
-                  child: const Text('Resend'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   void _showVerifyDialog(BuildContext context) {

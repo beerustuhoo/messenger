@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../widgets/avatar.dart';
 import '../widgets/error_banner.dart';
+import '../widgets/verification_banner.dart';
 import 'chat_screen.dart';
 import 'profile_screen.dart';
 import 'search_screen.dart';
@@ -58,6 +59,7 @@ class _WebShellState extends State<WebShell> {
       ),
       body: Column(
         children: [
+          const VerificationBanner(),
           ErrorBanner(message: state.bannerError, onDismiss: () => state.clearBannerError()),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),

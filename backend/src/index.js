@@ -36,7 +36,19 @@ async function main() {
   app.use(express.json());
   app.use('/uploads', express.static(uploadDir));
 
+  const publicDir = path.join(__dirname, '../public');
+
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
+  app.get('/', (req, res, next) => {
+    const indexPath = path.join(publicDir, 'index.html');
+    if (fs.existsSync(indexPath)) return next();
+    res.status(200).json({
+      status: 'ok',
+      message: 'API is running. Web UI not bundled — run scripts/prepare-render-deploy.ps1 and redeploy.',
+      health: '/health',
+    });
+  });
 
   app.use('/api/auth', authRoutes);
   app.use('/api/users', userRoutes);
@@ -46,18 +58,9 @@ async function main() {
   app.use('/api/messages', messageRoutes);
   app.use('/api/polls', pollRoutes);
 
-  const publicDir = path.join(__dirname, '../public');
   if (fs.existsSync(publicDir)) {
     app.use(express.static(publicDir));
-    app.get('*', (req, res, next) => {
-      if (
-        req.path.startsWith('/api') ||
-        req.path.startsWith('/socket.io') ||
-        req.path.startsWith('/uploads') ||
-        req.path === '/health'
-      ) {
-        return next();
-      }
+    app.get(/^(?!\/api|\/socket\.io|\/uploads|\/health).*/, (req, res) => {
       res.sendFile(path.join(publicDir, 'index.html'));
     });
   }
