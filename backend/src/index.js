@@ -7,7 +7,7 @@ const path = require('path');
 const { Server } = require('socket.io');
 const { initDb, pool } = require('./db');
 const { setupSocket } = require('./socket');
-const { isSmtpConfigured } = require('./email');
+const { isSmtpConfigured, sendMail } = require('./email');
 
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
@@ -71,6 +71,30 @@ async function main() {
       console.error('Readiness check failed:', err);
       res.status(503).json({ status: 'error', database: false });
     }
+  });
+
+  app.get('/health/test-email', async (req, res) => {
+    if (!process.env.DIAG_KEY) {
+      return res.status(404).json({ error: 'Diagnostics disabled. Set DIAG_KEY to enable.' });
+    }
+    if (req.query.key !== process.env.DIAG_KEY) {
+      return res.status(403).json({ error: 'Invalid diagnostics key' });
+    }
+    const to = req.query.to;
+    if (!to) return res.status(400).json({ error: 'Provide ?to=email@example.com' });
+    const result = await sendMail({
+      to,
+      subject: 'Mobile Messenger test email',
+      text: 'This is a test email from Mobile Messenger. If you received it, SMTP works.',
+      html: '<p>This is a <strong>test email</strong> from Mobile Messenger. If you received it, SMTP works.</p>',
+    });
+    res.status(result.ok ? 200 : 502).json({
+      smtpConfigured: isSmtpConfigured(),
+      from: process.env.SMTP_FROM || null,
+      host: process.env.SMTP_HOST || null,
+      sent: result.ok === true,
+      error: result.error || null,
+    });
   });
 
   app.get('/', (req, res, next) => {
