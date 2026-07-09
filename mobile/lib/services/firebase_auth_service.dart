@@ -6,22 +6,29 @@ import '../firebase_options.dart';
 
 class FirebaseAuthService {
   static bool _ready = false;
+  static String? _lastInitError;
 
   static bool get isEnabled => _ready;
+  static String? get lastInitError => _lastInitError;
 
   static FirebaseAuth get auth => FirebaseAuth.instance;
 
   static Future<bool> initialize() async {
     if (!DefaultFirebaseOptions.isConfigured) {
+      _lastInitError = 'Firebase config missing in this build';
       debugPrint('Firebase: not configured (missing FIREBASE_API_KEY / FIREBASE_PROJECT_ID)');
       return false;
     }
     try {
-      await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+      if (Firebase.apps.isEmpty) {
+        await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+      }
       _ready = true;
+      _lastInitError = null;
       debugPrint('Firebase Auth enabled');
       return true;
     } catch (e) {
+      _lastInitError = e.toString();
       debugPrint('Firebase init failed: $e');
       return false;
     }

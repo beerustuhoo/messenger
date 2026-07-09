@@ -51,8 +51,36 @@ class AppState extends ChangeNotifier {
   final Map<String, bool> typingUsers = {};
   final Map<String, _OutboxItem> _outbox = {};
   bool isOnline = true;
+  bool _serverUsesFirebase = false;
 
-  bool get usesFirebaseAuth => FirebaseAuthService.isEnabled;
+  bool get usesFirebaseAuth => FirebaseAuthService.isEnabled || _serverUsesFirebase;
+
+  Future<void> _refreshServerAuthMode() async {
+    try {
+      final data = await api.get('/auth/mode');
+      if (data is Map<String, dynamic>) {
+        _serverUsesFirebase = data['firebase'] == true;
+      }
+    } catch (_) {
+      // Keep previous value if the server is unreachable.
+    }
+  }
+
+  Future<bool> _ensureClientFirebaseReady() async {
+    await _refreshServerAuthMode();
+    if (!_serverUsesFirebase) return false;
+    if (!FirebaseAuthService.isEnabled) {
+      await FirebaseAuthService.initialize();
+    }
+    if (FirebaseAuthService.isEnabled) return true;
+    final detail = FirebaseAuthService.lastInitError;
+    setError(
+      detail == null
+          ? 'Firebase could not start. Hard-refresh the page (Ctrl+Shift+R), then try again.'
+          : 'Firebase could not start. Hard-refresh (Ctrl+Shift+R). $detail',
+    );
+    return false;
+  }
 
   AppState() {
     api.onTokenRefresh = _refreshAccessToken;
@@ -220,6 +248,11 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> init() async {
+    await _refreshServerAuthMode();
+    if (!FirebaseAuthService.isEnabled && _serverUsesFirebase) {
+      await FirebaseAuthService.initialize();
+    }
+
     if (FirebaseAuthService.isEnabled) {
       final fbUser = FirebaseAuthService.auth.currentUser;
       if (fbUser != null) {
@@ -396,7 +429,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<bool> register(String email, String password, String username) async {
-    if (FirebaseAuthService.isEnabled) {
+    if (await _ensureClientFirebaseReady() || FirebaseAuthService.isEnabled) {
       try {
         clearError();
         final cred = await FirebaseAuthService.auth.createUserWithEmailAndPassword(
@@ -434,6 +467,9 @@ class AppState extends ChangeNotifier {
         return false;
       }
     }
+    if (_serverUsesFirebase) {
+      return false;
+    }
     try {
       clearError();
       final data = await api.post('/auth/register', {
@@ -447,7 +483,11 @@ class AppState extends ChangeNotifier {
       return true;
     } on ApiException catch (e) {
       fieldError = e.field;
-      setError(e.message);
+      if (e.message.contains('Firebase Auth')) {
+        setError('This server uses Firebase login. Hard-refresh the page (Ctrl+Shift+R), then register again.');
+      } else {
+        setError(e.message);
+      }
       return false;
     } catch (e) {
       setError('Registration failed: $e');
@@ -456,7 +496,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<bool> login(String email, String password) async {
-    if (FirebaseAuthService.isEnabled) {
+    if (await _ensureClientFirebaseReady() || FirebaseAuthService.isEnabled) {
       try {
         clearError();
         await FirebaseAuthService.auth.signInWithEmailAndPassword(
@@ -487,13 +527,20 @@ class AppState extends ChangeNotifier {
         return false;
       }
     }
+    if (_serverUsesFirebase) {
+      return false;
+    }
     try {
       clearError();
       final data = await api.post('/auth/login', {'email': email, 'password': password});
       await _handleAuthResponse(_expectMap(data, 'login'));
       return true;
     } on ApiException catch (e) {
-      setError(e.message);
+      if (e.message.contains('Firebase Auth')) {
+        setError('This server uses Firebase login. Hard-refresh the page (Ctrl+Shift+R), then log in again.');
+      } else {
+        setError(e.message);
+      }
       return false;
     } catch (e) {
       setError('Login failed: $e');
