@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../config.dart';
+import '../firebase_options.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import '../services/firebase_auth_service.dart';
@@ -66,9 +67,13 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<bool> _ensureClientFirebaseReady() async {
+  Future<bool> _needsFirebaseAuth() async {
     await _refreshServerAuthMode();
-    if (!_serverUsesFirebase) return false;
+    return _serverUsesFirebase || DefaultFirebaseOptions.isConfigured;
+  }
+
+  Future<bool> _ensureClientFirebaseReady() async {
+    if (!await _needsFirebaseAuth()) return false;
     if (!FirebaseAuthService.isEnabled) {
       await FirebaseAuthService.initialize();
     }
@@ -249,7 +254,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> init() async {
     await _refreshServerAuthMode();
-    if (!FirebaseAuthService.isEnabled && _serverUsesFirebase) {
+    if (!FirebaseAuthService.isEnabled && await _needsFirebaseAuth()) {
       await FirebaseAuthService.initialize();
     }
 
@@ -467,7 +472,7 @@ class AppState extends ChangeNotifier {
         return false;
       }
     }
-    if (_serverUsesFirebase) {
+    if (await _needsFirebaseAuth()) {
       return false;
     }
     try {
@@ -527,7 +532,7 @@ class AppState extends ChangeNotifier {
         return false;
       }
     }
-    if (_serverUsesFirebase) {
+    if (await _needsFirebaseAuth()) {
       return false;
     }
     try {

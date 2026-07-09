@@ -36,6 +36,19 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
-  <script src="flutter_bootstrap.js" async></script>
+  <!-- Load Firebase JS SDK before Flutter (required for release web builds). -->
+  <script>
+    (async function () {
+      try {
+        window.firebase_core = await import('https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js');
+        window.firebase_auth = await import('https://www.gstatic.com/firebasejs/11.9.1/firebase-auth.js');
+      } catch (e) {
+        console.error('Firebase preload failed:', e);
+      }
+      var s = document.createElement('script');
+      s.src = 'flutter_bootstrap.js';
+      document.body.appendChild(s);
+    })();
+  </script>
 </body>
 </html>
