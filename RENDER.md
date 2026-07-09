@@ -43,8 +43,7 @@ Docs: [Render pricing](https://render.com/pricing) · [Render deploy guide](REND
 2. Git remote Render can access — **GitHub** or **GitLab** (recommended).  
    If your repo is only on Gitea, mirror it to GitHub or use [Manual Deploy](https://render.com/docs/deploy-a-commit).
 3. [Flutter SDK](https://docs.flutter.dev/get-started/install) on your PC (to build the web bundle before deploy)
-4. SMTP provider for real emails (verification + password reset).  
-   Free options: [Resend](https://resend.com), [SendGrid](https://sendgrid.com), or Gmail app password.
+4. Firebase project for auth emails on Render (see [FIREBASE_SETUP.md](FIREBASE_SETUP.md)). SMTP is optional when Firebase is enabled.
 
 ---
 
@@ -229,5 +228,5 @@ If you prefer the dashboard instead of `render.yaml`:
 
 ## Related docs
 
-- [README-WEB.md](README-WEB.md) — Web Messenger features & reviewer checklist
+- [README.md](README.md) — Web Messenger overview, setup, and usage
 - [README.md](README.md) — Mobile Messenger & local Docker setup

@@ -1,375 +1,195 @@
-# Mobile Messenger 📲
+# Web Messenger
 
-A full-stack Flutter messaging application with a Node.js backend, real-time chat, encrypted data storage, and reviewer-friendly setup.
+Browser-based messenger built with **Flutter Web** and a shared **Node.js / PostgreSQL** backend. The same codebase also builds the Android app, so messages sync between web and mobile in real time.
 
-## Two-part project (mobile + web)
+**Live deployment:** https://mobile-messenger-i7id.onrender.com  
+**Repository:** https://gitea.kood.tech/johansebastianrodriguez/web-messenger
 
-This repo contains **one shared codebase** with two deliverables:
-
-| Part | What reviewers use | Where it runs | Git remote |
-|------|-------------------|---------------|------------|
-| **1 — Mobile** | Android APK + local Docker | Emulator/phone → `http://10.0.2.2:3000` or your PC IP | **Gitea** (school submission) |
-| **2 — Web** | Browser + cloud API | **Render** → `https://YOUR-SERVICE.onrender.com` | **Gitea** → [web-messenger](https://gitea.kood.tech/johansebastianrodriguez/web-messenger) |
-
-**Will web changes break mobile?** No — not if you keep using the APK with **local Docker** (default). Web-only UI (`WebShell`, dual panes, polls button) is behind `kIsWeb`. On Android you still get `HomeScreen`, voice messages, and notifications. The shared backend gained group/search/poll APIs; mobile direct-chat flow is unchanged.
-
-**Optional:** Point the APK at Render (**Server settings** → your `https://…onrender.com` URL) to use the same cloud database as web.
-
-See **[RENDER.md](RENDER.md)** for always-online cloud deployment.
+| Layer | Technology |
+|-------|------------|
+| Web & mobile UI | Flutter 3.x, Provider |
+| API & WebSocket | Node.js, Express, Socket.IO |
+| Database | PostgreSQL |
+| Hosting | [Render](RENDER.md) (web + API on one URL) |
+| Auth (production) | Firebase Auth (email verification & password reset) |
+| Auth (local dev) | JWT + [Mailhog](http://localhost:8025) |
 
 ---
 
 ## Project overview
 
-Mobile Messenger lets users register, verify email, manage profiles, search for contacts, send chat invitations, exchange text/image/video/audio messages, and see delivery/read receipts with typing indicators. Sensitive data (emails, profile text, message content) is encrypted at rest using **AES-256-GCM** before being stored in PostgreSQL.
+Users register with email, username, and password, verify their email, then search for contacts and send chat invitations (direct or group). Chats support text, images, and video, with typing indicators and sent / delivered / read receipts. Group chats add polls (public or anonymous) and in-chat message search.
 
-| Layer | Stack |
-|-------|-------|
-| Mobile | Flutter 3.x, Provider, Socket.IO client |
-| Backend | Node.js, Express, Socket.IO, PostgreSQL |
-| Infra | Docker Compose (single command) |
-| Email (dev) | Mailhog web UI on port 8025 |
+Sensitive fields (email, about text, message bodies, poll text) are encrypted with **AES-256-GCM** in `backend/src/crypto.js` before they are stored. Usernames stay plain text so search still works.
+
+Web-specific UI lives in `mobile/lib/screens/web_shell.dart`: a sidebar chat list, up to two open chats side by side, group management, polls, and a top error banner when the API fails.
 
 ---
 
-## Reviewer quick start
+## Setup
 
-**No Flutter required.** Install Docker, start the backend, install the APK.
+### Option A — Review the deployed app (no install)
+
+1. Open https://mobile-messenger-i7id.onrender.com  
+2. Register with a real email address (Firebase sends the verification mail).  
+3. Click the link in the email, then tap **I verified** in the app if the banner is still shown.
+
+First load after idle can take ~30 seconds on Render’s free tier (cold start).
+
+### Option B — Run locally
+
+**You need:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) and, only if you want to rebuild the web UI, the [Flutter SDK](https://docs.flutter.dev/get-started/install).
+
+**1. Start the backend**
 
 ```powershell
 .\start-backend.ps1
 ```
 
-1. Wait for `http://localhost:3000/health` → `{"status":"ok"}`
-2. Install **`releases/app-release.apk`** on an Android emulator or device
-3. **Emulator:** open app and register — default server `http://10.0.2.2:3000` works immediately
-4. **Physical phone:** tap **Server: http://…** on the login screen → enter `http://YOUR_PC_IP:3000` (from `start-backend.ps1`) → **Test** → **Save**
-5. Register two accounts → tap **Verify now** on the home banner (or use Mailhog on the PC)
+Check http://localhost:3000/health → `{"status":"ok"}`.
 
-Full details: [Reviewer Guide](#reviewer-guide) below.
+**2. Open the web app**
 
----
-
-## Quick start (developers)
-
-### 1. Start the backend (one command)
-
-**Windows (PowerShell):**
 ```powershell
-.\start-backend.ps1
+.\build-web.ps1
 ```
 
-**macOS / Linux:**
-```bash
-chmod +x start-backend.sh && ./start-backend.sh
-```
+Then open http://localhost:8080.
 
-**Or manually:**
-```bash
-docker compose -f backend/docker-compose.yml up --build -d
-```
+For hot reload during development:
 
-Verify: http://localhost:3000/health  
-View test emails: http://localhost:8025
-
-`start-backend.ps1` / `.sh` also prints the **LAN URL for physical phones** and reminds you which URL emulators use by default.
-
-### Email in development (Mailhog)
-
-In local/dev mode the backend does **not** send mail to real inboxes (Gmail, Outlook, etc.). Docker includes **Mailhog**, a fake SMTP server that captures every outgoing email and shows it in a web UI.
-
-| What you might expect | What actually happens |
-|-----------------------|------------------------|
-| Verification email in your Gmail inbox | Email appears only in Mailhog |
-| Need a real email provider for testing | Any address works in the register form — delivery is always local |
-
-**After registering or requesting a password reset:**
-
-1. On the **same machine running Docker**, open http://localhost:8025
-2. Open the message (subject: *Verify your Mobile Messenger account* or *Reset your password*)
-3. **Easiest:** on the phone/emulator, tap **Verify now** on the home banner after login (no Mailhog needed on the device)
-4. **Alternative:** copy the plain-text token from Mailhog into the app, or open the verify link in a desktop browser
-
-If you registered with your real email and nothing showed up in Gmail, that is normal — check Mailhog instead.
-
-**Production:** Configure a real SMTP provider in `backend/.env` (see `backend/.env.example`).
-
-### 2. Run or build the Flutter app (Android)
-
-```bash
+```powershell
 cd mobile
 flutter pub get
-flutter run
-```
-
-On a connected device or emulator, `flutter run` targets Android by default in this project.
-
-#### Server URL (no rebuild needed for reviewers)
-
-The pre-built APK defaults to **`http://10.0.2.2:3000`** (Android emulator → host Docker). Change the server **in the app**:
-
-| Where | How |
-|-------|-----|
-| Login screen | Tap the **Server: http://…** button under the logo (or the server icon in the app bar) |
-| While logged in | **Profile → Server** |
-
-Use **Test connection** then **Save**. The URL is stored on the device.
-
-| Target | URL |
-|--------|-----|
-| Android emulator / Nox / BlueStacks | `http://10.0.2.2:3000` (default) |
-| Physical phone on same Wi‑Fi | `http://YOUR_PC_IP:3000` (from `start-backend.ps1`) |
-
-Example for `flutter run` on a physical Android device:
-```bash
-flutter run --dart-define=API_URL=http://YOUR_PC_IP:3000
-```
-
-Build release APK:
-```bash
-cd mobile
-flutter build apk --release
-```
-
-Output: `mobile/build/app/outputs/flutter-apk/app-release.apk`
-
----
-
-## Reviewer Guide
-
-Reviewers can test the app **without installing Flutter or Android Studio** using the pre-built APK and Docker backend.
-
-### Prerequisites
-
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
-- An Android device, emulator, or browser-based emulator
-
-### Pre-built APK
-
-| File | Default server | Use for |
-|------|----------------|---------|
-| `releases/app-release.apk` | `http://10.0.2.2:3000` | **All reviewers** — emulators and phones (set `http://YOUR_PC_IP:3000` in app on physical device) |
-
-**Download:** The APK is **not in Git** (host size limit). Get `app-release.apk` from the **Google Drive link in your submission**, or build locally:
-
-```bash
-cd mobile && flutter build apk --release
-```
-
-**Important:** The APK does **not** contain a personal/home IP. On a physical phone, set `http://YOUR_PC_IP:3000` once in **Server settings**.
-
-### Step 1 — Start the backend
-
-From the project root:
-
-```powershell
-.\start-backend.ps1
-```
-
-Wait until `http://localhost:3000/health` returns `{"status":"ok"}`.
-
-The terminal prints:
-- Emulator URL: `http://10.0.2.2:3000` (built into the APK)
-- Physical phone URL: `http://YOUR_PC_IP:3000` (set once in the app; your IP is printed by `start-backend.ps1`)
-
-**Email testing:** http://localhost:8025 (Mailhog)
-
-### Step 2 — Install the app
-
-Install **`releases/app-release.apk`**.
-
-#### Option A: Android emulator (recommended — zero config)
-
-1. Start the backend (Step 1).
-2. Install `releases/app-release.apk` in Android Studio emulator, Nox, BlueStacks, or LDPlayer.
-3. Open the app and register — no server setup needed.
-4. Tap **Verify now** on the home banner, or verify via Mailhog on the PC.
-5. Search users → send invite → chat on a second account/emulator.
-
-#### Option B: Physical Android device
-
-1. Start the backend (Step 1) and note the **Physical phone** URL from the terminal.
-2. Copy `releases/app-release.apk` to the device (USB, cloud link, or GitHub Release).
-3. Enable **Install unknown apps** for your file manager; install the APK.
-4. Phone on the **same Wi‑Fi** as the PC running Docker (not guest Wi‑Fi).
-5. Open app → tap **Server: http://…** on login → paste `http://YOUR_PC_IP:3000` → **Test connection** → **Save**.
-6. Register and test. Use **Verify now** on the home banner for email verification.
-
-**Troubleshooting:** In Chrome on the phone, open `http://YOUR_PC_IP:3000/health`. If that fails, fix Wi‑Fi/firewall before changing app settings.
-
-#### Option C: Browser-based emulator (Appetize.io)
-
-1. Upload `releases/app-release.apk` to [Appetize](https://appetize.io/).
-2. Appetize runs in the cloud and **cannot reach `localhost` on your machine**. Use Option A or B for standard review, or expose the API with ngrok and set that URL in **Server settings**.
-
-### Suggested test flow
-
-1. **Register** two users with strong passwords (8+ chars, upper, lower, digit, special).
-2. Try duplicate email/username — confirm error messages appear.
-3. **Verify** via **Verify now** on the home banner (or Mailhog token on PC).
-4. **Search** for the second user → **Send invite** → accept on the other account.
-5. Send **text**, **image**, **video**, and **voice** messages; check sent/delivered/read ticks.
-6. Stop Docker, send a message — confirm **Not delivered** with Retry/Delete; restart backend and **Retry**.
-7. **Edit** and **delete** your own messages.
-8. **Archive** a chat from the chat list.
-9. Open **Profile** → edit username/about → upload JPEG/PNG avatar (≤5MB) → change **Theme** (light/dark/system).
-10. **Mute** notifications on a chat (long-press chat in list); confirm notification when unmuted and app in background.
-11. **Log out** and reopen — session should persist until logout.
-
-### APK distribution
-
-| Location | Notes |
-|----------|-------|
-| Google Drive (submission link) | Primary download for reviewers (~51 MB) |
-| `releases/app-release.apk` | Local build output; gitignored (too large for Gitea) |
-| `flutter build apk --release` | Reviewers can rebuild from source if needed |
-
----
-
-## Features implemented
-
-### Core requirements
-- Registration (email, password, username) with duplicate detection
-- Password strength validation with live feedback
-- Login / persistent session (secure storage + refresh tokens)
-- Email verification (Mailhog in dev; **Verify now** one-tap in app)
-- Password reset via email
-- User profile (avatar, username, about) — JPEG/PNG, 5MB limit
-- User search by username or email
-- Chat invitations (send, accept, decline, pending list)
-- Chat list sorted by last activity, archive/unarchive
-- Text, image, video, and audio messages (20MB after compression)
-- Message status: sent → delivered → read (with failed delivery UI + retry)
-- Edit/delete own messages
-- Typing indicators (WebSocket)
-- AES-256-GCM encryption for sensitive DB fields
-
-### Extra requirements
-- Reviewer-friendly Docker backend (`start-backend.ps1` / `.sh`)
-- Reviewer Guide with emulator, physical device, and Appetize paths
-- Release APK in `releases/` with in-app server configuration
-- Instructions for Android, lightweight emulator, and browser-based emulator
-
-### Bonus
-- **Audio messages** — record with microphone, waveform-style player in chat
-- **Local notifications** — new messages and invites (Android 13+ permission requested; works when app/socket connected)
-- **Per-chat mute** for notifications
-- **Light / dark / system theme** in Profile
-- **Configurable server URL** — one APK for all reviewers without rebuilding
-
----
-
-## Architecture
-
-```
-mobile/          Flutter client
-backend/         Express API + Socket.IO
-  src/
-    crypto.js    AES-256-GCM encrypt/decrypt
-    routes/      REST endpoints
-    socket.js    Real-time events
-releases/        Pre-built APK(s) for reviewers
-```
-
-### Encryption
-
-Fields encrypted before insert: `email_enc`, `about_enc`, `messages.content_enc`. Media files are stored on disk; paths are stored in DB.
-
-### Real-time events
-
-| Event | Purpose |
-|-------|---------|
-| `message:new` | New message in chat |
-| `message:status` | Delivered / read |
-| `typing:start` / `typing:stop` | Typing indicators |
-| `invite:received` | New invitation |
-| `notification` | Local notification payload |
-
----
-
-## Usage guide
-
-1. **Register** on the Register tab; meet all password rules.
-2. After login, tap **Verify now** on the home banner (or use Mailhog on the PC).
-3. **Login** persists across app restarts.
-4. **Search** (person icon) → invite users.
-5. **Invites** (mail badge) → accept to create a chat.
-6. Tap a chat → send text, media, or hold mic for voice.
-7. Long-press your message → edit or delete.
-8. **Profile** → avatar, about, theme, server URL, or log out.
-
----
-
-## Challenges & solutions
-
-| Challenge | Approach |
-|-----------|----------|
-| Emulator ↔ host networking | Default `10.0.2.2` in APK; no setup for reviewers |
-| Different PC IP per reviewer | In-app **Server settings** — no Flutter rebuild |
-| Email in dev without SMTP | Mailhog in docker-compose + **Verify now** in app |
-| Encrypted search by email | SHA-256 hash column for exact email lookup |
-| Large media | `flutter_image_compress` + 20MB server limit |
-| Session persistence on Android | `flutter_secure_storage` with encrypted prefs + refresh tokens |
-| Failed sends when offline | Optimistic UI, outbox, Retry/Delete |
-| Android 13+ notifications | Runtime `POST_NOTIFICATIONS` permission |
-
----
-
-## Web Messenger
-
-Full Web Messenger documentation: **[README-WEB.md](README-WEB.md)** (setup, deployment, requirements checklist, reviewer test flow).
-
-The same Flutter codebase runs as **Web Messenger** in the browser, sharing the backend and database with the mobile app.
-
-### Run locally
-
-```bash
-.\start-backend.ps1
-cd mobile
 flutter run -d chrome --dart-define=API_URL=http://localhost:3000
 ```
 
-## Deployment (Render — public URL)
+**3. Email on localhost**
 
-Deploy API + Web Messenger on one URL so **any computer** and the **mobile APK** can connect.
+Outgoing mail is caught by Mailhog, not delivered to Gmail. After registering, open http://localhost:8025 on the same PC, or use **Verify now** in the app.
 
-**Full guide:** [RENDER.md](RENDER.md)
-
-Quick summary:
-
-1. Connect repo to Render → **New Blueprint** (uses `render.yaml`)
-2. Set `ENCRYPTION_KEY`, `APP_URL`, and SMTP env vars
-3. Run `.\scripts\prepare-render-deploy.ps1` → commit `backend/public` → push
-4. Open `https://YOUR-SERVICE.onrender.com` (web)
-5. Mobile: **Server settings** → same URL
-
----
-
-## Deployment (local Docker)
-
-### Web-only features
-
-| Feature | Description |
-|---------|-------------|
-| **Responsive UI** | Sidebar chat list + up to **2 chats** open side by side |
-| **Group chats** | Create groups, invite members, accept/decline group invitations |
-| **Message search** | Search text in chats; results highlighted and navigable |
-| **Group polls** | Create polls (anonymous or public), vote, change/retract vote |
-| **Error banner** | Network/API errors shown with dismiss; app keeps last stable state |
-
-### Default API URL
-
-- **Web:** `http://localhost:3000` (auto when no saved Server URL)
-- **Android:** `http://10.0.2.2:3000` or configure in **Server settings**
-
----
-
-## Stop services
+**4. Stop**
 
 ```bash
 docker compose -f backend/docker-compose.yml down
 ```
 
+### Option C — Deploy your own instance on Render
+
+See **[RENDER.md](RENDER.md)** and **[FIREBASE_SETUP.md](FIREBASE_SETUP.md)** for environment variables, Firebase service account JSON, and rebuilding `backend/public`.
+
 ---
 
+## Usage guide
 
+### Account
+
+1. **Register** — email, username, password. Password rules are shown while typing (8+ chars, upper, lower, digit, special). Duplicate email or username shows an inline error.  
+2. **Verify email** — required before the account is treated as verified. On Render, Firebase sends the email. Locally, use Mailhog or **Verify now**.  
+3. **Log in** with email and password.  
+4. **Forgot password** — link on the login screen; follow the email reset flow.
+
+### Contacts & invites
+
+- **Search** (person icon) — by username (partial match) or email (exact).  
+- **Direct invite** — from search results.  
+- **Group invite** — when creating a group or from the group chat header.  
+- **Pending invites** — mail icon; accept or decline direct and group invitations.
+
+### Chats
+
+- Sidebar lists chats sorted by latest activity.  
+- Click a chat to open it; on web you can open **two chats** at once.  
+- Send text, images (gallery), or videos.  
+- Typing indicators appear while the other person types.  
+- Own messages show ✓ sent, ✓✓ delivered, blue ✓✓ read.  
+- Failed sends show a red state with **Retry** and **Delete**.  
+- Long-press your message to **edit** or **delete** text.
+
+### Message search (web)
+
+Use the search field above the chat area. Matches are highlighted in yellow; **↑** / **↓** move between results.
+
+### Group polls
+
+In a group chat, use the poll icon. Choose public or anonymous, vote, change your vote, or retract it.
+
+### Profile
+
+Account icon → edit username, **About Me**, and profile picture (JPEG/PNG, max 5 MB). New users get a default letter avatar. **Log out** ends only the current browser session.
+
+### Web + mobile together
+
+Install the APK (see [README-MOBILE.md](README-MOBILE.md)), set **Server** to `https://mobile-messenger-i7id.onrender.com`, and log in with the same account. Messages should appear on both clients within about two seconds.
+
+---
+
+## Requirements reference
+
+Short map from the project rubric to where things live in the app.
+
+| Area | What to check |
+|------|----------------|
+| **Auth** | Register / login tabs; duplicate email/username errors; password checklist; verification banner; forgot password |
+| **Profile** | Profile screen — username, avatar upload, About Me, default initial avatar |
+| **Invites** | Search screen; Invitations screen with pending badge |
+| **Messaging** | Chat input; image/video pickers; typing line; receipt icons; failed message retry |
+| **Groups** | Create group (+); group invites; polls in group chats |
+| **Search** | Web search bar; highlighted hits; prev/next navigation |
+| **Sessions** | Log in on web and phone; log out on one — the other stays connected |
+| **Encryption** | `backend/src/crypto.js`, encrypted columns in `backend/src/db.js` |
+| **Errors** | Red `ErrorBanner` on web; snackbars on actions; failed messages stay in the list |
+| **Web extras** | `web_shell.dart` — dual panes, responsive layout, shared `app_theme.dart` |
+
+---
+
+## Code layout
+
+```
+mobile/lib/
+  main.dart           Web vs mobile entry (WebShell / HomeScreen)
+  screens/            auth, web_shell, chat, profile, search, …
+  providers/          AppState (shared state), ThemeProvider
+  services/           API client, socket, storage, Firebase auth
+  widgets/            avatar, poll_card, error_banner, …
+  models/             User, Chat, Message, Poll, …
+backend/src/
+  routes/             REST endpoints
+  socket.js           real-time events
+  crypto.js           AES-256-GCM
+  firebase.js         production auth
+```
+
+---
+
+## Challenges & solutions
+
+| Problem | What we did |
+|---------|-------------|
+| Emulator reaching Docker on the host | Default API URL `10.0.2.2` for Android; in-app server settings for real devices |
+| Email verification without SMTP in the cloud | Firebase Auth on Render; Mailhog locally |
+| Encrypted email but still searchable | SHA-256 hash column for exact email lookup |
+| Web and mobile from one repo | `kIsWeb` guards; `WebShell` only on web |
+| Failed sends on bad network | Optimistic UI, local outbox, retry/delete on the bubble |
+| Stale web bundle after deploy | `prepare-render-deploy.ps1` copies build into `backend/public`; PWA cache disabled for web release builds |
+| Group member pickers on web | `user_picker_dialog.dart` instead of raw UUID entry |
+
+---
+
+## Troubleshooting
+
+| Issue | Try |
+|-------|-----|
+| Render site slow or blank | Wait for cold start; hard-refresh (`Ctrl+Shift+R`) |
+| Registration error about Firebase | Add `mobile-messenger-i7id.onrender.com` under Firebase → Authentication → Authorized domains |
+| Local web won’t connect | Confirm http://localhost:3000/health |
+| No verification email locally | http://localhost:8025 (Mailhog) |
+| Mobile can’t reach PC backend | Same Wi‑Fi; use LAN IP from `start-backend.ps1` in Server settings |
+
+---
+
+## More docs
+
+- [README-MOBILE.md](README-MOBILE.md) — APK install and mobile testing  
+- [RENDER.md](RENDER.md) — Render deployment  
+- [FIREBASE_SETUP.md](FIREBASE_SETUP.md) — Firebase Auth configuration
