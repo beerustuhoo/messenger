@@ -7,7 +7,7 @@ APP_URL="${1:-AUTO}"
 echo "Building Flutter web (API_URL=$APP_URL)..."
 cd "$ROOT/mobile"
 flutter pub get
-flutter build web --dart-define=API_URL="$APP_URL"
+flutter build web --pwa-strategy=none --dart-define=API_URL="$APP_URL"
 
 DEST="$ROOT/backend/public"
 rm -rf "$DEST"/*

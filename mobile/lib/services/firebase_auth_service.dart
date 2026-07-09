@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
@@ -21,7 +23,11 @@ class FirebaseAuthService {
     }
     try {
       if (Firebase.apps.isEmpty) {
-        await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+        await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)
+            .timeout(
+          const Duration(seconds: 20),
+          onTimeout: () => throw TimeoutException('Firebase SDK load timed out'),
+        );
       }
       _ready = true;
       _lastInitError = null;
@@ -54,6 +60,8 @@ class FirebaseAuthService {
         return 'Invalid email or password';
       case 'too-many-requests':
         return 'Too many attempts. Try again later.';
+      case 'unauthorized-domain':
+        return 'This site is not authorized in Firebase. Add mobile-messenger-i7id.onrender.com under Authentication → Authorized domains.';
       default:
         return e.message ?? 'Authentication failed';
     }

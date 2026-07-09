@@ -90,9 +90,22 @@ router.post('/sync', async (req, res) => {
       return res.status(400).json({ error: 'Username must be at least 3 characters', field: 'username' });
     }
 
-    const takenEmail = await pool.query('SELECT id FROM users WHERE email_hash = $1', [emailHash(email)]);
+    const takenEmail = await pool.query('SELECT * FROM users WHERE email_hash = $1', [emailHash(email)]);
     if (takenEmail.rows.length) {
-      return res.status(409).json({ error: 'Email already in use', field: 'email' });
+      const legacy = takenEmail.rows[0];
+      if (legacy.firebase_uid && legacy.firebase_uid !== fb.uid) {
+        return res.status(409).json({ error: 'Email already in use', field: 'email' });
+      }
+      if (!legacy.firebase_uid) {
+        await pool.query(
+          `UPDATE users
+           SET firebase_uid = $1, email_verified = $2, email_hash = $3, email_enc = $4, password_hash = NULL
+           WHERE id = $5`,
+          [fb.uid, fb.emailVerified, emailHash(email), encrypt(email), legacy.id]
+        );
+        const updated = await pool.query('SELECT * FROM users WHERE id = $1', [legacy.id]);
+        return res.json({ user: userPayload(updated.rows[0], email) });
+      }
     }
     const takenUser = await pool.query('SELECT id FROM users WHERE username = $1', [uname]);
     if (takenUser.rows.length) {

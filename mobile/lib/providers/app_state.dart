@@ -253,57 +253,63 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> init() async {
-    await _refreshServerAuthMode();
-    if (!FirebaseAuthService.isEnabled && await _needsFirebaseAuth()) {
-      await FirebaseAuthService.initialize();
-    }
+    try {
+      await _refreshServerAuthMode();
+      if (!FirebaseAuthService.isEnabled && await _needsFirebaseAuth()) {
+        await FirebaseAuthService.initialize();
+      }
 
-    if (FirebaseAuthService.isEnabled) {
-      final fbUser = FirebaseAuthService.auth.currentUser;
-      if (fbUser != null) {
-        final token = await FirebaseAuthService.getIdToken();
-        if (token != null) {
-          api.setTokens(access: token, refresh: 'firebase');
-          await storage.saveTokens(token, 'firebase');
-          if (await _restoreSession()) {
-            status = AppStatus.authenticated;
-            socket.connect(token);
-            await _onAuthenticated();
-            notifyListeners();
-            _loadInitialDataSafely();
-            return;
+      if (FirebaseAuthService.isEnabled) {
+        final fbUser = FirebaseAuthService.auth.currentUser;
+        if (fbUser != null) {
+          final token = await FirebaseAuthService.getIdToken();
+          if (token != null) {
+            api.setTokens(access: token, refresh: 'firebase');
+            await storage.saveTokens(token, 'firebase');
+            if (await _restoreSession()) {
+              status = AppStatus.authenticated;
+              socket.connect(token);
+              await _onAuthenticated();
+              notifyListeners();
+              _loadInitialDataSafely();
+              return;
+            }
           }
         }
+        status = AppStatus.unauthenticated;
+        notifyListeners();
+        return;
       }
+
+      final (access, refresh) = await storage.loadTokens();
+      if (access == null || refresh == null) {
+        status = AppStatus.unauthenticated;
+        notifyListeners();
+        return;
+      }
+
+      api.setTokens(access: access, refresh: refresh);
+      if (await _restoreSession()) {
+        status = AppStatus.authenticated;
+        socket.connect(api.accessToken ?? access);
+        pendingVerificationToken = await storage.loadPendingVerificationToken();
+        if (user != null && !user!.emailVerified && pendingVerificationToken == null) {
+          await _fetchVerificationToken();
+        }
+        await _onAuthenticated();
+        notifyListeners();
+        _loadInitialDataSafely();
+        return;
+      }
+
+      await _clearSession();
       status = AppStatus.unauthenticated;
       notifyListeners();
-      return;
-    }
-
-    final (access, refresh) = await storage.loadTokens();
-    if (access == null || refresh == null) {
+    } catch (e) {
+      debugPrint('App init error: $e');
       status = AppStatus.unauthenticated;
       notifyListeners();
-      return;
     }
-
-    api.setTokens(access: access, refresh: refresh);
-    if (await _restoreSession()) {
-      status = AppStatus.authenticated;
-      socket.connect(api.accessToken ?? access);
-      pendingVerificationToken = await storage.loadPendingVerificationToken();
-      if (user != null && !user!.emailVerified && pendingVerificationToken == null) {
-        await _fetchVerificationToken();
-      }
-      await _onAuthenticated();
-      notifyListeners();
-      _loadInitialDataSafely();
-      return;
-    }
-
-    await _clearSession();
-    status = AppStatus.unauthenticated;
-    notifyListeners();
   }
 
   Future<bool> _restoreSession() async {
