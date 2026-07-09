@@ -8,11 +8,13 @@ import 'providers/theme_provider.dart';
 import 'screens/auth_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/web_shell.dart';
+import 'services/firebase_auth_service.dart';
 import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppConfig.init();
+  await FirebaseAuthService.initialize();
   await NotificationService.init();
   final themeProvider = ThemeProvider();
   await themeProvider.init();

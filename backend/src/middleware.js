@@ -1,17 +1,31 @@
 const jwt = require('jsonwebtoken');
+const { isFirebaseEnabled } = require('./firebase');
+const { resolveUserIdFromBearer } = require('./auth_tokens');
 
-function authMiddleware(req, res, next) {
+async function authMiddleware(req, res, next) {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Authentication required' });
   }
-  try {
-    const payload = jwt.verify(header.slice(7), process.env.JWT_SECRET);
-    req.userId = payload.sub;
-    next();
-  } catch {
+
+  const token = header.slice(7);
+  const resolved = await resolveUserIdFromBearer(token);
+
+  if (!resolved) {
     return res.status(401).json({ error: 'Invalid or expired session' });
   }
+
+  if (resolved.needsSync) {
+    return res.status(401).json({ error: 'Profile not synced', code: 'NEEDS_SYNC' });
+  }
+
+  if (!resolved.userId) {
+    return res.status(401).json({ error: 'Invalid or expired session' });
+  }
+
+  req.userId = resolved.userId;
+  req.firebase = resolved.firebase;
+  next();
 }
 
 function validatePassword(password) {

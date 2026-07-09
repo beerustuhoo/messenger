@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/app_state.dart';
@@ -14,8 +13,7 @@ class VerificationBanner extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    final token = state.pendingVerificationToken;
-    final emailSent = state.lastVerificationEmailSent;
+    final usesFirebase = state.usesFirebaseAuth;
 
     return Material(
       color: Theme.of(context).colorScheme.primaryContainer,
@@ -27,26 +25,12 @@ class VerificationBanner extends StatelessWidget {
             Text('Verify your email', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 4),
             Text(
-              emailSent
-                  ? 'We sent a verification email to ${state.user!.email ?? 'your address'}. Open the link in that message, or use Verify now below.'
-                  : 'No verification email was sent (SMTP is not configured on the server). Use Verify now below, or ask the admin to set SMTP on Render.',
+              usesFirebase
+                  ? 'We sent a verification email to ${state.user!.email ?? 'your address'} via Firebase. Open the link in that message, then tap "I verified".'
+                  : state.lastVerificationEmailSent
+                      ? 'We sent a verification email to ${state.user!.email ?? 'your address'}. Open the link or use Verify now below.'
+                      : 'No verification email was sent (SMTP not configured). Use Verify now below, or configure SMTP on the server.',
             ),
-            if (!emailSent) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Render needs real SMTP (e.g. Resend). See RENDER.md in the repo.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-              ),
-            ],
-            if (token != null) ...[
-              const SizedBox(height: 8),
-              SelectableText(
-                token,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
-              ),
-            ],
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -67,30 +51,16 @@ class VerificationBanner extends StatelessWidget {
                       }
                     }
                   },
-                  child: const Text('Verify now'),
+                  child: Text(usesFirebase ? 'I verified' : 'Verify now'),
                 ),
-                if (token != null)
-                  TextButton(
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: token));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Code copied')),
-                      );
-                    },
-                    child: const Text('Copy code'),
-                  ),
                 TextButton(
                   onPressed: () async {
                     try {
-                      final sent = await state.resendVerification();
+                      await state.resendVerification();
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              sent
-                                  ? 'Verification email sent — check your inbox and spam folder.'
-                                  : 'Could not send email. SMTP is not set up on the server.',
-                            ),
+                          const SnackBar(
+                            content: Text('Verification email sent — check inbox and spam'),
                           ),
                         );
                       }

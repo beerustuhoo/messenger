@@ -94,6 +94,8 @@ async function initDb() {
       ALTER TABLE chats ADD COLUMN IF NOT EXISTS name VARCHAR(100);
       ALTER TABLE chats ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id);
       ALTER TABLE chat_members ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'member';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS firebase_uid VARCHAR(128) UNIQUE;
+      ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
 
       UPDATE chat_members cm SET role = 'admin'
       FROM chats c

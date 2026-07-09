@@ -1,13 +1,16 @@
 const jwt = require('jsonwebtoken');
+const { Server } = require('socket.io');
 const { pool } = require('./db');
+const { resolveUserIdFromBearer } = require('./auth_tokens');
 
 function setupSocket(io) {
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
     if (!token) return next(new Error('Authentication required'));
     try {
-      const payload = jwt.verify(token, process.env.JWT_SECRET);
-      socket.userId = payload.sub;
+      const resolved = await resolveUserIdFromBearer(token);
+      if (!resolved?.userId) return next(new Error('Authentication required'));
+      socket.userId = resolved.userId;
       next();
     } catch {
       next(new Error('Invalid token'));

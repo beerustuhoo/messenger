@@ -1,9 +1,11 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../config.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
+import '../services/firebase_auth_service.dart';
 import '../services/socket_service.dart';
 import '../services/storage_service.dart';
 import '../services/notification_service.dart';
@@ -49,6 +51,8 @@ class AppState extends ChangeNotifier {
   final Map<String, bool> typingUsers = {};
   final Map<String, _OutboxItem> _outbox = {};
   bool isOnline = true;
+
+  bool get usesFirebaseAuth => FirebaseAuthService.isEnabled;
 
   AppState() {
     api.onTokenRefresh = _refreshAccessToken;
@@ -110,14 +114,14 @@ class AppState extends ChangeNotifier {
     socket.on('typing:start', (data) {
       if (data is! Map) return;
       final map = Map<String, dynamic>.from(data);
-      typingUsers['${map['chatId']}:${map['userId']}'] = true;
+      typingUsers[_typingKey(map)] = true;
       notifyListeners();
     });
 
     socket.on('typing:stop', (data) {
       if (data is! Map) return;
       final map = Map<String, dynamic>.from(data);
-      typingUsers.remove('${map['chatId']}:${map['userId']}');
+      typingUsers.remove(_typingKey(map));
       notifyListeners();
     });
 
@@ -151,7 +155,12 @@ class AppState extends ChangeNotifier {
       }
     });
 
-    socket.on('chat:created', (_) => loadChats());
+    socket.on('chat:created', (_) async {
+      await loadChats();
+      _syncSocketRooms();
+    });
+
+    socket.on('connected', (_) => _syncSocketRooms());
 
     socket.on('notification', (data) {
       final map = Map<String, dynamic>.from(data as Map);
@@ -185,18 +194,54 @@ class AppState extends ChangeNotifier {
     if (idx >= 0) list[idx] = msg;
   }
 
+  String _typingKey(Map<String, dynamic> map) => '${map['chatId']}:${map['userId']}';
+
+  void _syncSocketRooms() {
+    if (!socket.isConnected) return;
+    final ids = <String>{
+      ...chats.map((c) => c.id),
+      ...archivedChats.map((c) => c.id),
+      ...messagesByChat.keys,
+    };
+    for (final id in ids) {
+      socket.joinChat(id);
+    }
+  }
+
   bool isTypingInChat(String chatId) {
     final me = user?.id;
+    final prefix = '$chatId:';
     return typingUsers.entries.any((e) {
       if (!e.value) return false;
-      final parts = e.key.split(':');
-      if (parts.isEmpty || parts[0] != chatId) return false;
-      if (me != null && parts.length > 1 && parts[1] == me) return false;
+      if (!e.key.startsWith(prefix)) return false;
+      if (me != null && e.key == '$chatId:$me') return false;
       return true;
     });
   }
 
   Future<void> init() async {
+    if (FirebaseAuthService.isEnabled) {
+      final fbUser = FirebaseAuthService.auth.currentUser;
+      if (fbUser != null) {
+        final token = await FirebaseAuthService.getIdToken();
+        if (token != null) {
+          api.setTokens(access: token, refresh: 'firebase');
+          await storage.saveTokens(token, 'firebase');
+          if (await _restoreSession()) {
+            status = AppStatus.authenticated;
+            socket.connect(token);
+            await _onAuthenticated();
+            notifyListeners();
+            _loadInitialDataSafely();
+            return;
+          }
+        }
+      }
+      status = AppStatus.unauthenticated;
+      notifyListeners();
+      return;
+    }
+
     final (access, refresh) = await storage.loadTokens();
     if (access == null || refresh == null) {
       status = AppStatus.unauthenticated;
@@ -273,6 +318,16 @@ class AppState extends ChangeNotifier {
   Future<String?> _performTokenRefresh() async {
     try {
       final (_, refresh) = await storage.loadTokens();
+      if (refresh == 'firebase' && FirebaseAuthService.isEnabled) {
+        final token = await FirebaseAuthService.getIdToken(forceRefresh: true);
+        if (token != null) {
+          api.setTokens(access: token, refresh: 'firebase');
+          await storage.saveTokens(token, 'firebase');
+          socket.connect(token);
+          return token;
+        }
+        return null;
+      }
       if (refresh == null) return null;
       final data = await api.post('/auth/refresh', {'refreshToken': refresh});
       final access = data['accessToken'] as String;
@@ -341,6 +396,44 @@ class AppState extends ChangeNotifier {
   }
 
   Future<bool> register(String email, String password, String username) async {
+    if (FirebaseAuthService.isEnabled) {
+      try {
+        clearError();
+        final cred = await FirebaseAuthService.auth.createUserWithEmailAndPassword(
+          email: email.trim(),
+          password: password,
+        );
+        await cred.user?.sendEmailVerification();
+        lastVerificationEmailSent = true;
+        final token = await cred.user?.getIdToken();
+        if (token == null) throw ApiException('Could not get session token');
+        api.setTokens(access: token, refresh: 'firebase');
+        await storage.saveTokens(token, 'firebase');
+        final data = await api.post('/auth/sync', {'username': username.trim()});
+        final map = _expectMap(data, 'sync');
+        user = UserModel.fromJson(map['user'] as Map<String, dynamic>);
+        await storage.saveCachedUser(user!);
+        socket.connect(token);
+        status = AppStatus.authenticated;
+        notifyListeners();
+        await _onAuthenticated();
+        _loadInitialDataSafely();
+        return true;
+      } on FirebaseAuthException catch (e) {
+        fieldError = FirebaseAuthService.fieldForError(e);
+        setError(FirebaseAuthService.mapError(e));
+        return false;
+      } on ApiException catch (e) {
+        fieldError = e.field;
+        setError(e.message);
+        await FirebaseAuthService.auth.signOut();
+        return false;
+      } catch (e) {
+        setError('Registration failed: $e');
+        await FirebaseAuthService.auth.signOut();
+        return false;
+      }
+    }
     try {
       clearError();
       final data = await api.post('/auth/register', {
@@ -363,6 +456,37 @@ class AppState extends ChangeNotifier {
   }
 
   Future<bool> login(String email, String password) async {
+    if (FirebaseAuthService.isEnabled) {
+      try {
+        clearError();
+        await FirebaseAuthService.auth.signInWithEmailAndPassword(
+          email: email.trim(),
+          password: password,
+        );
+        final token = await FirebaseAuthService.getIdToken();
+        if (token == null) throw ApiException('Could not get session token');
+        api.setTokens(access: token, refresh: 'firebase');
+        await storage.saveTokens(token, 'firebase');
+        if (!await _restoreSession()) {
+          throw ApiException('Account not found on server. Register first.');
+        }
+        socket.connect(token);
+        status = AppStatus.authenticated;
+        notifyListeners();
+        await _onAuthenticated();
+        _loadInitialDataSafely();
+        return true;
+      } on FirebaseAuthException catch (e) {
+        setError(FirebaseAuthService.mapError(e));
+        return false;
+      } on ApiException catch (e) {
+        setError(e.message);
+        return false;
+      } catch (e) {
+        setError('Login failed: $e');
+        return false;
+      }
+    }
     try {
       clearError();
       final data = await api.post('/auth/login', {'email': email, 'password': password});
@@ -416,8 +540,12 @@ class AppState extends ChangeNotifier {
 
   Future<void> logout() async {
     try {
-      final (_, refresh) = await storage.loadTokens();
-      await api.post('/auth/logout', refresh != null ? {'refreshToken': refresh} : {});
+      if (FirebaseAuthService.isEnabled) {
+        await FirebaseAuthService.auth.signOut();
+      } else {
+        final (_, refresh) = await storage.loadTokens();
+        await api.post('/auth/logout', refresh != null ? {'refreshToken': refresh} : {});
+      }
     } catch (_) {}
     await _clearSession();
     status = AppStatus.unauthenticated;
@@ -437,6 +565,7 @@ class AppState extends ChangeNotifier {
     chats = active.map((e) => ChatModel.fromJson(e as Map<String, dynamic>)).toList();
     archivedChats =
         archived.map((e) => ChatModel.fromJson(e as Map<String, dynamic>)).toList();
+    _syncSocketRooms();
     notifyListeners();
   }
 
@@ -876,6 +1005,22 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> verifyEmailNow() async {
+    if (FirebaseAuthService.isEnabled) {
+      final fbUser = FirebaseAuthService.auth.currentUser;
+      if (fbUser == null) throw ApiException('Not signed in');
+      await fbUser.reload();
+      if (fbUser.emailVerified) {
+        final token = await fbUser.getIdToken(true);
+        if (token != null) {
+          api.setTokens(access: token, refresh: 'firebase');
+          await storage.saveTokens(token, 'firebase');
+        }
+        await api.post('/auth/sync', {});
+        await loadProfile();
+        return;
+      }
+      throw ApiException('Email not verified yet. Check your inbox and spam folder.');
+    }
     var token = pendingVerificationToken;
     if (token == null || token.isEmpty) {
       await _fetchVerificationToken();
@@ -888,6 +1033,14 @@ class AppState extends ChangeNotifier {
   }
 
   Future<bool> resendVerification() async {
+    if (FirebaseAuthService.isEnabled) {
+      final fbUser = FirebaseAuthService.auth.currentUser;
+      if (fbUser == null) throw ApiException('Not signed in');
+      await fbUser.sendEmailVerification();
+      lastVerificationEmailSent = true;
+      notifyListeners();
+      return true;
+    }
     final data = await api.post('/auth/resend-verification', {}) as Map<String, dynamic>;
     if (data['verificationToken'] != null) {
       await _setPendingVerificationToken(data['verificationToken'] as String);
@@ -898,6 +1051,10 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> forgotPassword(String email) async {
+    if (FirebaseAuthService.isEnabled) {
+      await FirebaseAuthService.auth.sendPasswordResetEmail(email: email.trim());
+      return;
+    }
     await api.post('/auth/forgot-password', {'email': email});
   }
 

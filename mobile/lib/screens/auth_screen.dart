@@ -83,7 +83,11 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                     ? null
                     : () => _run(() async {
                           await state.forgotPassword(_resetEmail.text.trim());
-                          state.setError('Reset email sent. Check Mailhog at :8025');
+                          state.setError(
+                            state.usesFirebaseAuth
+                                ? 'Password reset email sent. Check your inbox.'
+                                : 'Reset email sent. Check Mailhog at :8025',
+                          );
                         }),
                 child: const Text('Send reset email'),
               ),
@@ -281,12 +285,13 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                     }
                     if (ok && mounted) {
                       final sent = state.lastVerificationEmailSent;
+                      final usesFirebase = state.usesFirebaseAuth;
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
-                            sent
+                            usesFirebase || sent
                                 ? 'Account created! Check your inbox (and spam) for the verification email.'
-                                : 'Account created! Email was not sent — tap Verify now on the next screen, or configure SMTP on the server.',
+                                : 'Account created! Email was not sent — use Verify now on the next screen.',
                           ),
                           duration: const Duration(seconds: 6),
                         ),

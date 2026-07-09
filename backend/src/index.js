@@ -8,6 +8,7 @@ const { Server } = require('socket.io');
 const { initDb, pool } = require('./db');
 const { setupSocket } = require('./socket');
 const { isSmtpConfigured, sendMail } = require('./email');
+const { initFirebase, isFirebaseEnabled } = require('./firebase');
 
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
@@ -23,7 +24,8 @@ const uploadDir = process.env.UPLOAD_DIR || './uploads';
 function validateEnv() {
   const missing = [];
   if (!process.env.DATABASE_URL) missing.push('DATABASE_URL');
-  if (!process.env.JWT_SECRET) missing.push('JWT_SECRET');
+  const firebaseReady = initFirebase();
+  if (!firebaseReady && !process.env.JWT_SECRET) missing.push('JWT_SECRET (or FIREBASE_SERVICE_ACCOUNT_JSON)');
   const enc = process.env.ENCRYPTION_KEY;
   if (!enc || enc.length !== 64 || !/^[0-9a-fA-F]+$/.test(enc)) {
     missing.push('ENCRYPTION_KEY (64 hex characters, run: openssl rand -hex 32)');
@@ -66,6 +68,7 @@ async function main() {
         encryption: Boolean(process.env.ENCRYPTION_KEY?.length === 64),
         jwt: Boolean(process.env.JWT_SECRET),
         smtp: isSmtpConfigured(),
+        firebase: isFirebaseEnabled(),
       });
     } catch (err) {
       console.error('Readiness check failed:', err);

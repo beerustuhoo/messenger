@@ -47,5 +47,7 @@ services:
         sync: false
       - key: SMTP_PASS
         sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
       - key: UPLOAD_DIR
         value: ./uploads

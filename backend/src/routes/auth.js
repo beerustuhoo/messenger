@@ -6,6 +6,7 @@ const { pool } = require('../db');
 const { encrypt, decrypt } = require('../crypto');
 const { authMiddleware, validatePassword } = require('../middleware');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../email');
+const { isFirebaseEnabled, verifyFirebaseToken } = require('../firebase');
 
 const router = express.Router();
 
@@ -39,7 +40,88 @@ async function storeRefreshToken(userId, refreshToken) {
   );
 }
 
+function userPayload(row, email) {
+  return {
+    id: row.id,
+    username: row.username,
+    email: email ?? undefined,
+    emailVerified: row.email_verified,
+    about: row.about_enc ? decrypt(row.about_enc) || '' : '',
+    avatarUrl: row.avatar_url,
+  };
+}
+
+router.get('/mode', (_req, res) => {
+  res.json({ firebase: isFirebaseEnabled() });
+});
+
+router.post('/sync', async (req, res) => {
+  if (!isFirebaseEnabled()) {
+    return res.status(503).json({ error: 'Firebase auth is not enabled on this server' });
+  }
+  const header = req.headers.authorization;
+  if (!header?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  let fb;
+  try {
+    fb = await verifyFirebaseToken(header.slice(7));
+  } catch {
+    return res.status(401).json({ error: 'Invalid Firebase token' });
+  }
+  const email = fb.email?.toLowerCase().trim();
+  if (!email) return res.status(400).json({ error: 'Firebase account has no email' });
+
+  const { username } = req.body;
+  const uname = username?.trim();
+
+  try {
+    const existing = await pool.query('SELECT * FROM users WHERE firebase_uid = $1', [fb.uid]);
+    if (existing.rows.length) {
+      await pool.query(
+        `UPDATE users SET email_verified = $1, email_hash = $2, email_enc = $3 WHERE firebase_uid = $4`,
+        [fb.emailVerified, emailHash(email), encrypt(email), fb.uid]
+      );
+      const updated = await pool.query('SELECT * FROM users WHERE firebase_uid = $1', [fb.uid]);
+      return res.json({ user: userPayload(updated.rows[0], email) });
+    }
+
+    if (!uname || uname.length < 3) {
+      return res.status(400).json({ error: 'Username must be at least 3 characters', field: 'username' });
+    }
+
+    const takenEmail = await pool.query('SELECT id FROM users WHERE email_hash = $1', [emailHash(email)]);
+    if (takenEmail.rows.length) {
+      return res.status(409).json({ error: 'Email already in use', field: 'email' });
+    }
+    const takenUser = await pool.query('SELECT id FROM users WHERE username = $1', [uname]);
+    if (takenUser.rows.length) {
+      return res.status(409).json({ error: 'Username already in use', field: 'username' });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO users (firebase_uid, email_hash, email_enc, username, password_hash, email_verified)
+       VALUES ($1, $2, $3, $4, NULL, $5)
+       RETURNING *`,
+      [fb.uid, emailHash(email), encrypt(email), uname, fb.emailVerified]
+    );
+    res.status(201).json({ user: userPayload(result.rows[0], email) });
+  } catch (err) {
+    console.error('Sync error:', err);
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Email or username already in use' });
+    }
+    res.status(500).json({ error: 'Profile sync failed' });
+  }
+});
+
 router.post('/register', async (req, res) => {
+  if (isFirebaseEnabled()) {
+    return res.status(400).json({
+      error: 'Registration is handled by Firebase Auth in the app',
+      code: 'FIREBASE_AUTH',
+    });
+  }
   try {
     const { email, password, username } = req.body;
     if (!email || !password || !username) {
@@ -108,6 +190,12 @@ router.post('/register', async (req, res) => {
 });
 
 router.post('/login', async (req, res) => {
+  if (isFirebaseEnabled()) {
+    return res.status(400).json({
+      error: 'Login is handled by Firebase Auth in the app',
+      code: 'FIREBASE_AUTH',
+    });
+  }
   try {
     const { email, password } = req.body;
     if (!email || !password) {
