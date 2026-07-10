@@ -78,11 +78,8 @@ class AppState extends ChangeNotifier {
       await FirebaseAuthService.initialize();
     }
     if (FirebaseAuthService.isEnabled) return true;
-    final detail = FirebaseAuthService.lastInitError;
     setError(
-      detail == null
-          ? 'Firebase could not start. Hard-refresh the page (Ctrl+Shift+R), then try again.'
-          : 'Firebase could not start. Hard-refresh (Ctrl+Shift+R). $detail',
+      'Could not connect to Firebase. Clear site data for this page or use Ctrl+Shift+R, then try again.',
     );
     return false;
   }

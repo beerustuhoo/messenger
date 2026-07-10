@@ -21,23 +21,30 @@ class FirebaseAuthService {
       debugPrint('Firebase: not configured (missing FIREBASE_API_KEY / FIREBASE_PROJECT_ID)');
       return false;
     }
-    try {
-      if (Firebase.apps.isEmpty) {
-        await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)
-            .timeout(
-          const Duration(seconds: 20),
-          onTimeout: () => throw TimeoutException('Firebase SDK load timed out'),
-        );
+
+    final attempts = kIsWeb ? 3 : 1;
+    for (var attempt = 0; attempt < attempts; attempt++) {
+      try {
+        if (Firebase.apps.isEmpty) {
+          await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)
+              .timeout(
+            const Duration(seconds: 20),
+            onTimeout: () => throw TimeoutException('Firebase SDK load timed out'),
+          );
+        }
+        _ready = true;
+        _lastInitError = null;
+        debugPrint('Firebase Auth enabled');
+        return true;
+      } catch (e) {
+        _lastInitError = e.toString();
+        debugPrint('Firebase init failed (attempt ${attempt + 1}/$attempts): $e');
+        if (attempt < attempts - 1) {
+          await Future.delayed(Duration(milliseconds: 400 * (attempt + 1)));
+        }
       }
-      _ready = true;
-      _lastInitError = null;
-      debugPrint('Firebase Auth enabled');
-      return true;
-    } catch (e) {
-      _lastInitError = e.toString();
-      debugPrint('Firebase init failed: $e');
-      return false;
     }
+    return false;
   }
 
   static Future<String?> getIdToken({bool forceRefresh = false}) async {
